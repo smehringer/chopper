@@ -37,6 +37,16 @@ struct configuration
     uint8_t k{19};
     //!\}
 
+    /*!\name Partitioned HIBF configuration
+     * \{
+     */
+    //!\brief The maximum index size that the HIBF should not exceed. number_of_paritions will be set accordingly.
+    size_t maximum_index_size{0};
+
+    //!\brief The number of partitions for the HIBF index.
+    size_t number_of_partitions{0};
+    //!\}
+
     /*!\name Configuration of size estimates
      * \{
      */

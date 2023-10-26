@@ -58,45 +58,71 @@ int execute(chopper::configuration & config, std::vector<std::string> const & fi
                   << "anyway, so we increased your number of technical bins to " << config.hibf_config.tmax << ".\n";
     }
 
-    seqan::hibf::layout::layout hibf_layout;
-    std::vector<seqan::hibf::sketch::hyperloglog> sketches;
-
-    if (config.determine_best_tmax)
+    if (config.number_of_partitions < 2) // 0 == unset == single HIBF, 1 == single HIBF
     {
-        std::tie(hibf_layout, sketches) = determine_best_number_of_technical_bins(config);
+        seqan::hibf::layout::layout hibf_layout;
+        std::vector<seqan::hibf::sketch::hyperloglog> sketches;
+
+        if (config.determine_best_tmax)
+        {
+            std::tie(hibf_layout, sketches) = determine_best_number_of_technical_bins(config);
+        }
+        else
+        {
+            std::vector<size_t> kmer_counts;
+
+            seqan::hibf::sketch::compute_sketches(config.hibf_config, kmer_counts, sketches);
+            hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config, kmer_counts, sketches);
+
+            if (config.output_verbose_statistics)
+            {
+                size_t dummy{};
+                chopper::layout::hibf_statistics global_stats{config, sketches, kmer_counts};
+                global_stats.hibf_layout = hibf_layout;
+                global_stats.print_header_to(std::cout);
+                global_stats.print_summary_to(dummy, std::cout);
+            }
+        }
+
+        if (!config.disable_sketch_output)
+        {
+            if (!std::filesystem::exists(config.sketch_directory))
+                std::filesystem::create_directory(config.sketch_directory);
+
+            assert(filenames.size() == sketches.size());
+            for (size_t i = 0; i < filenames.size(); ++i)
+                sketch::write_sketch_file(filenames[i], sketches[i], config);
+        }
+
+        // brief Write the output to the layout file.
+        std::ofstream fout{config.output_filename};
+        chopper::layout::write_user_bins_to(filenames, fout);
+        config.write_to(fout);
+        hibf_layout.write_to(fout);
     }
     else
     {
-        std::vector<size_t> kmer_counts;
+        std::vector<std::vector<seqan::hibf::sketch::hyperloglog>> sketches_per_part;
+        std::vector<std::vector<size_t>> cardinalities_per_part;
 
-        seqan::hibf::sketch::compute_sketches(config.hibf_config, kmer_counts, sketches);
-        hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config, kmer_counts, sketches);
+        seqan::hibf::sketch::compute_sketches(config.hibf_config, cardinalities_per_part, sketches_per_part, config.number_of_partitions);
 
-        if (config.output_verbose_statistics)
+        std::vector<seqan::hibf::layout::layout> hibf_layouts(config.number_of_partitions);
+
+        #pragma omp parallel for schedule(dynamic) num_threads(config.hibf_config.threads)
+        for (size_t i = 0; i < config.number_of_partitions; ++i)
         {
-            size_t dummy{};
-            chopper::layout::hibf_statistics global_stats{config, sketches, kmer_counts};
-            global_stats.hibf_layout = hibf_layout;
-            global_stats.print_header_to(std::cout);
-            global_stats.print_summary_to(dummy, std::cout);
+            hibf_layouts[i] = seqan::hibf::layout::compute_layout(config.hibf_config, cardinalities_per_part[i], sketches_per_part[i]);
         }
+
+        // brief Write the output to the layout file.
+        std::ofstream fout{config.output_filename};
+        chopper::layout::write_user_bins_to(filenames, fout);
+        config.write_to(fout);
+
+        for (size_t i = 0; i < config.number_of_partitions; ++i)
+            hibf_layouts[i].write_to(fout);
     }
-
-    if (!config.disable_sketch_output)
-    {
-        if (!std::filesystem::exists(config.sketch_directory))
-            std::filesystem::create_directory(config.sketch_directory);
-
-        assert(filenames.size() == sketches.size());
-        for (size_t i = 0; i < filenames.size(); ++i)
-            sketch::write_sketch_file(filenames[i], sketches[i], config);
-    }
-
-    // brief Write the output to the layout file.
-    std::ofstream fout{config.output_filename};
-    chopper::layout::write_user_bins_to(filenames, fout);
-    config.write_to(fout);
-    hibf_layout.write_to(fout);
 
     return 0;
 }
