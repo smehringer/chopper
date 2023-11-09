@@ -93,6 +93,7 @@ int chopper_layout(chopper::configuration & config, sharg::parser & parser)
 
     std::vector<std::vector<std::string>> filenames{};
     std::vector<seqan::hibf::sketch::hyperloglog> sketches{};
+    std::vector<seqan::hibf::sketch::minhashes> minHash_sketches{};
 
     if (input_is_a_sketch_file)
     {
@@ -106,6 +107,7 @@ int chopper_layout(chopper::configuration & config, sharg::parser & parser)
 
         filenames = std::move(sin.filenames); // No need to call check_filenames because the files are not read.
         sketches = std::move(sin.hll_sketches);
+        minHash_sketches = std::move(sin.minHash_sketches);
         validate_configuration(parser, config, sin.chopper_config);
     }
     else
@@ -128,11 +130,14 @@ int chopper_layout(chopper::configuration & config, sharg::parser & parser)
     if (!input_is_a_sketch_file)
     {
         config.compute_sketches_timer.start();
-        seqan::hibf::sketch::compute_sketches(config.hibf_config, sketches);
+        if (config.number_of_partitions < 2)
+            seqan::hibf::sketch::compute_sketches(config.hibf_config, sketches);
+        else
+            seqan::hibf::sketch::compute_sketches(config.hibf_config, sketches, minHash_sketches);
         config.compute_sketches_timer.stop();
     }
 
-    exit_code |= chopper::layout::execute(config, filenames, sketches);
+    exit_code |= chopper::layout::execute(config, filenames, sketches, minHash_sketches);
 
     if (!config.disable_sketch_output)
     {
