@@ -20,8 +20,20 @@
 namespace chopper
 {
 
+enum partitioning_scheme
+{
+    blocked,       // 0
+    sorted,        // 1
+    folded,        // 2
+    weighted_fold, // 3
+    similarity,    // 4
+    lsh,           // 5
+    lsh_sim        // 6
+};
+
 struct configuration
 {
+    int partitioning_approach{};
     /*!\name General Configuration
      * \{
      */
@@ -45,6 +57,16 @@ struct configuration
 
     //!\brief Whether the input files are precomputed files (.minimiser) instead of sequence files.
     bool precomputed_files{false};
+    //!\}
+
+    /*!\name Partitioned HIBF configuration
+     * \{
+     */
+    //!\brief The maximum index size that the HIBF should not exceed. number_of_paritions will be set accordingly.
+    size_t maximum_index_size{0};
+
+    //!\brief The number of partitions for the HIBF index.
+    size_t number_of_partitions{0};
     //!\}
 
     /*!\name Configuration of size estimates
@@ -98,6 +120,9 @@ private:
         archive(CEREAL_NVP(window_size));
         archive(CEREAL_NVP(disable_sketch_output));
         archive(CEREAL_NVP(precomputed_files));
+
+        archive(CEREAL_NVP(maximum_index_size));
+        archive(CEREAL_NVP(number_of_partitions));
 
         archive(CEREAL_NVP(output_filename));
         archive(CEREAL_NVP(determine_best_tmax));
