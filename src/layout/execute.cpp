@@ -52,16 +52,18 @@ uint64_t lsh_hash_the_sketch(std::vector<uint64_t> const & sketch)
 }
 
 std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches,
+                         std::vector<size_t> const & positions,
                          std::vector<size_t> const & cardinalities,
                          chopper::configuration const & config)
 {
     assert(!minHash_sketches.empty());
     assert(!minHash_sketches[0].empty());
 
+    size_t const number_of_user_bins{positions.size()};
     size_t const number_of_max_minHash_sketches{minHash_sketches[0].size()};
     // size_t const minHash_sketche_size{10};
 
-    size_t number_of_clusters = minHash_sketches.size();
+    size_t number_of_clusters{number_of_user_bins}; // initially, each UB is a separate cluster
 
     // initialise clusters
     // cluster are either
@@ -75,13 +77,13 @@ std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vect
     // cluster[B] = {C}
     // cluster[C] = {C, A, B} // is valid cluster since cluster[C][0] == C; contains A and B
 
-    std::vector<std::vector<size_t>> clusters(minHash_sketches.size());
-    for (size_t user_bin_idx = 0; user_bin_idx < minHash_sketches.size(); ++user_bin_idx)
+    std::vector<std::vector<size_t>> clusters(number_of_clusters);
+    for (size_t const user_bin_idx : positions)
         clusters[user_bin_idx] = {user_bin_idx};
 
     // refine clusters
     size_t current_sketch_index{0};
-    while (number_of_clusters / static_cast<double>(minHash_sketches.size()) > 0.5 &&
+    while (number_of_clusters / static_cast<double>(number_of_user_bins) > 0.5 &&
            current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
     {
 std::cout << "Current number of clusters: " << number_of_clusters;
@@ -111,7 +113,7 @@ std::cout << "Current number of clusters: " << number_of_clusters;
                 table[key].push_back(representative_id); // insert representative for all user bins
             }
         }
-        assert(processed_user_bins == minHash_sketches.size()); // all user bins should've been processed by one of the clusters
+        assert(processed_user_bins == number_of_user_bins); // all user bins should've been processed by one of the clusters
 
         // read out table
         for (auto & [key, list] : table)
@@ -244,7 +246,6 @@ std::cout << " and after this clustering step there are: " << number_of_clusters
     return clusters;
 }
 
-
 bool find_best_partition(chopper::configuration const & config,
                          size_t const cardinality_per_part,
                          std::vector<size_t> const & cluster,
@@ -311,17 +312,16 @@ bool find_best_partition(chopper::configuration const & config,
 }
 
 void partition_user_bins(chopper::configuration const & config,
+                         std::vector<size_t> const & positions,
                          std::vector<size_t> const & cardinalities,
                          std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
-                         std::vector<std::vector<size_t>> & positions,
-                         std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches)
+                         std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches,
+                         std::vector<std::vector<size_t>> & partitions)
 {
     // all approaches need sorted positions
-    std::vector<size_t> const sorted_positions = [&cardinalities]()
+    std::vector<size_t> const sorted_positions = [&positions, &cardinalities]()
     {
-        std::vector<size_t> ps;
-        ps.resize(cardinalities.size());
-        std::iota(ps.begin(), ps.end(), 0);
+        std::vector<size_t> ps(positions.begin(), positions.end());
         seqan::hibf::sketch::toolbox::sort_by_cardinalities(cardinalities, ps);
         return ps;
     }();
@@ -338,7 +338,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[current_part].push_back(current_user_bin_id);
+            partitions[current_part].push_back(current_user_bin_id);
             ++current_block_count;
 
             if (current_block_count >= block_size)
@@ -361,7 +361,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[current_part].push_back(current_user_bin_id);
+            partitions[current_part].push_back(current_user_bin_id);
             current_cardinality += cardinalities[current_user_bin_id];
 
             if (current_cardinality >= cardinality_per_part)
@@ -390,7 +390,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[parts[current_part]].push_back(current_user_bin_id);
+            partitions[parts[current_part]].push_back(current_user_bin_id);
             current_cardinality += cardinalities[current_user_bin_id];
 
             if (current_cardinality >= cardinality_per_part_halved)
@@ -420,7 +420,7 @@ void partition_user_bins(chopper::configuration const & config,
             {
                 double const weight = static_cast<double>(current_cardinality) / cardinality_per_part;
                 double const amount =
-                    static_cast<double>(positions[current_part].size() + small_bins.size() + new_small_bin_addition)
+                    static_cast<double>(partitions[current_part].size() + small_bins.size() + new_small_bin_addition)
                     / u_bins_per_part;
                 return std::abs(1.0 - weight) + std::abs(1.0 - amount);
             };
@@ -428,7 +428,7 @@ void partition_user_bins(chopper::configuration const & config,
             // first add all large bins that fit
             while (current_cardinality < cardinality_per_part)
             {
-                positions[current_part].push_back(sorted_positions[current_big_pos]);
+                partitions[current_part].push_back(sorted_positions[current_big_pos]);
                 current_cardinality += cardinalities[sorted_positions[current_big_pos]];
                 ++current_big_pos;
             }
@@ -464,19 +464,19 @@ void partition_user_bins(chopper::configuration const & config,
                 }
                 else // update
                 {
-                    positions[current_part].pop_back();
+                    partitions[current_part].pop_back();
                     --current_big_pos;
                     for (size_t pos = cache_last_small_pos; pos > current_small_pos; --pos)
                         small_bins.push_back(sorted_positions[pos]);
                 }
             }
-            positions[current_part].insert(positions[current_part].end(), small_bins.begin(), small_bins.end());
+            partitions[current_part].insert(partitions[current_part].end(), small_bins.begin(), small_bins.end());
         }
 
         // remaining user bins go to last partition
         while (current_big_pos <= current_small_pos)
         {
-            positions[config.number_of_partitions - 1].push_back(sorted_positions[current_big_pos]);
+            partitions[config.number_of_partitions - 1].push_back(sorted_positions[current_big_pos]);
             ++current_big_pos;
         }
     }
@@ -513,7 +513,7 @@ void partition_user_bins(chopper::configuration const & config,
             {
                 partition_sketches[p].merge(sketches[sorted_positions[block_size * i + x]]);
                 partition_cardinality[p] += cardinalities[sorted_positions[block_size * i + x]];
-                positions[p].push_back(sorted_positions[block_size * i + x]);
+                partitions[p].push_back(sorted_positions[block_size * i + x]);
             }
         }
 
@@ -561,7 +561,7 @@ void partition_user_bins(chopper::configuration const & config,
 
             // now that we know which partition fits best (`best_p`), add those indices to it
 
-            positions[best_p].push_back(sorted_positions[i]);
+            partitions[best_p].push_back(sorted_positions[i]);
             partition_cardinality[best_p] += cardinalities[sorted_positions[i]];
             partition_sketches[best_p].merge(sketches[sorted_positions[i]]);
         }
@@ -578,7 +578,7 @@ void partition_user_bins(chopper::configuration const & config,
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
         // initial partitioning using locality sensitive hashing (LSH)
-        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, config);
+        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, positions, cardinalities, config);
 
         // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
         size_t cidx{0}; // current cluster index
@@ -601,7 +601,7 @@ void partition_user_bins(chopper::configuration const & config,
 
                 partition_sketches[p].merge(sketches[user_bin_idx]);
                 partition_cardinality[p] += cardinalities[user_bin_idx];
-                positions[p].push_back(user_bin_idx);
+                partitions[p].push_back(user_bin_idx);
             }
 
             if (p_has_been_incremented && partition_cardinality[p] < cardinality_per_part)
@@ -652,7 +652,7 @@ void partition_user_bins(chopper::configuration const & config,
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
         // initial partitioning using locality sensitive hashing (LSH)
-        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, config);
+        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, positions, cardinalities, config);
 
         // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
         size_t cidx{0}; // current cluster index
@@ -675,7 +675,7 @@ void partition_user_bins(chopper::configuration const & config,
 
                 partition_sketches[p].merge(sketches[user_bin_idx]);
                 partition_cardinality[p] += cardinalities[user_bin_idx];
-                positions[p].push_back(user_bin_idx);
+                partitions[p].push_back(user_bin_idx);
             }
 
             if (p_has_been_incremented && partition_cardinality[p] < cardinality_per_part)
@@ -745,6 +745,229 @@ void partition_user_bins(chopper::configuration const & config,
 
         throw std::logic_error{str};
     }
+
+    // assert([&](){ bool x{false}; for (auto const & p : partitions) { x &= !p.empty(); }; return x; });
+}
+
+seqan::hibf::layout::layout general_layout(chopper::configuration const & config,
+                std::vector<size_t> positions,
+                std::vector<size_t> const & cardinalities,
+                std::vector<seqan::hibf::sketch::hyperloglog> const & sketches)
+{
+    seqan::hibf::layout::layout hibf_layout;
+
+    seqan::hibf::concurrent_timer union_estimation_timer{};
+    seqan::hibf::concurrent_timer rearrangement_timer{};
+    seqan::hibf::concurrent_timer dp_algorithm_timer{};
+
+    dp_algorithm_timer.start();
+    hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config,
+                                                      cardinalities,
+                                                      sketches,
+                                                      std::move(positions),
+                                                      union_estimation_timer,
+                                                      rearrangement_timer);
+    dp_algorithm_timer.stop();
+
+    return hibf_layout;
+}
+
+bool do_I_need_a_fast_layout(chopper::configuration const & config, std::vector<size_t> const & positions, std::vector<size_t> const & cardinalities)
+{
+    // the fast layout heuristic would greedily merge even if merging only 2 bins at a time
+    // merging only little number of bins is highly disadvantegous for lower levels because few bins
+    // will be heavily split and this will raise the fpr correction for split bins
+    // Thus, if the average number of user bins per technical bin is less then 64, we should not fast layout
+    if (positions.size() < (64 * config.hibf_config.tmax))
+        return false;
+
+    if (positions.size() > 500'000) // layout takes more than half a day (should this be a user option?)
+        return true;
+
+    size_t largest_size{0};
+    size_t sum_of_cardinalities{0};
+
+    for (size_t const i : positions)
+    {
+        sum_of_cardinalities += cardinalities[i];
+        largest_size = std::max(largest_size, cardinalities[i]);
+    }
+
+    size_t const cardinality_per_tb = sum_of_cardinalities / config.hibf_config.tmax;
+
+    bool const largest_user_bin_might_be_split = largest_size > cardinality_per_tb;
+
+    // if no splitting is needed, its worth it to use a fast-merge-only algorithm
+    if (!largest_user_bin_might_be_split)
+        return true;
+
+    return false;
+}
+
+size_t determine_max_bin(std::vector<std::vector<size_t>> const & positions,
+                         std::vector<seqan::hibf::sketch::hyperloglog> const & sketches)
+{
+    size_t max_bin_id{0};
+    size_t max_size{0};
+
+    for (size_t i = 0; i < positions.size(); ++i)
+    {
+        if (positions[i].empty()) // should only happen on really small data sets with edge cases
+            continue;
+
+        seqan::hibf::sketch::hyperloglog tb{sketches[positions[i][0]]}; // init
+        for (auto const pos : positions[i])
+            tb.merge(sketches[pos]);
+
+        if (tb.estimate() > max_size)
+        {
+            max_bin_id = i;
+            max_size = tb.estimate();
+        }
+    }
+
+    return max_bin_id;
+}
+
+void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
+                         std::vector<std::vector<size_t>> const & positions,
+                         std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+                         std::vector<size_t> const & previous)
+{
+    hibf_layout.max_bins.emplace_back(previous, determine_max_bin(positions, sketches)); // add lower level meta information
+
+    // we assume here that the user bins have been sorted by user bin id such that pos = idx
+    size_t partition_idx{0};
+    for (auto const & partition : positions)
+    {
+        for (size_t const user_bin_id : partition)
+        {
+            assert(hibf_layout.user_bins[user_bin_id].idx == user_bin_id);
+            auto & current_user_bin = hibf_layout.user_bins[user_bin_id];
+
+            // update
+            assert(previous == current_user_bin.previous_TB_indices);
+            current_user_bin.previous_TB_indices.push_back(partition_idx);
+        }
+        ++partition_idx;
+    }
+}
+
+void fast_layout_recursion(chopper::configuration const & config,
+            std::vector<size_t> const & positions,
+            std::vector<size_t> const & cardinalities,
+            std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+            seqan::hibf::layout::layout & hibf_layout,
+            std::vector<size_t> const & previous)
+{
+    std::vector<std::vector<size_t>> tmax_partitions(config.hibf_config.tmax);
+
+    // here we assume that we want to start with a fast layout
+    partition_user_bins(config, positions, cardinalities, sketches, tmax_partitions);
+
+    add_level_to_layout(hibf_layout, tmax_partitions, sketches, previous);
+
+    size_t partition_idx{0};
+    for (auto const & partition : tmax_partitions)
+    {
+        if (partition.empty()) // should only happen on small data edge cases..
+            continue;
+
+        auto new_previous = previous;
+        new_previous.push_back(partition_idx);
+        if (do_I_need_a_fast_layout(config, partition, cardinalities))
+        {
+            fast_layout_recursion(config, partition, cardinalities, sketches, hibf_layout, previous); // recurse fast_layout
+        }
+        else
+        {
+            auto small_layout = general_layout(config, partition, cardinalities, sketches);
+
+            hibf_layout.max_bins.emplace_back(new_previous, small_layout.top_level_max_bin_id);
+
+            for (auto & max_bin : small_layout.max_bins)
+            {
+                max_bin.previous_TB_indices.insert(max_bin.previous_TB_indices.begin(), new_previous.begin(), new_previous.end());
+                hibf_layout.max_bins.push_back(max_bin);
+            }
+
+            for (auto const & user_bin : small_layout.user_bins)
+            {
+                auto & actual_user_bin = hibf_layout.user_bins[user_bin.idx];
+
+                actual_user_bin.previous_TB_indices.insert(actual_user_bin.previous_TB_indices.end(),
+                                                           user_bin.previous_TB_indices.begin(),
+                                                           user_bin.previous_TB_indices.end());
+                actual_user_bin.number_of_technical_bins = user_bin.number_of_technical_bins;
+                actual_user_bin.storage_TB_id = user_bin.storage_TB_id;
+            }
+        }
+        ++partition_idx;
+    }
+}
+
+void fast_layout(chopper::configuration const & config,
+                std::vector<size_t> const & positions,
+                std::vector<size_t> const & cardinalities,
+                std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+                seqan::hibf::layout::layout & hibf_layout)
+{
+    auto config_copy = config;
+    config_copy.number_of_partitions = config.hibf_config.tmax;
+
+    std::vector<std::vector<size_t>> tmax_partitions(config.hibf_config.tmax);
+
+    // here we assume that we want to start with a fast layout
+    partition_user_bins(config_copy, positions, cardinalities, sketches, tmax_partitions);
+
+    hibf_layout.top_level_max_bin_id = determine_max_bin(tmax_partitions, sketches);
+
+    hibf_layout.user_bins.resize(config_copy.hibf_config.number_of_user_bins);
+
+    size_t partition_idx{0};
+    for (auto const & partition : tmax_partitions)
+    {
+        if (partition.empty()) // should only happen on small data edge cases..
+            continue;
+
+        for (size_t const user_bin_id : partition)
+        {
+            hibf_layout.user_bins[user_bin_id] = {.previous_TB_indices = {partition_idx},
+                                                  .storage_TB_id = 0 /*not determiend yet*/,
+                                                  .number_of_technical_bins = 1 /*not determiend yet*/,
+                                                  .idx = user_bin_id};
+        }
+
+        if (do_I_need_a_fast_layout(config_copy, partition, cardinalities))
+        {
+            fast_layout_recursion(config_copy, partition, cardinalities, sketches, hibf_layout, {partition_idx}); // recurse fast_layout
+        }
+        else
+        {
+            auto small_layout = general_layout(config, partition, cardinalities, sketches);
+
+            hibf_layout.max_bins.emplace_back(std::vector<size_t>{partition_idx}, small_layout.top_level_max_bin_id);
+
+            for (auto & max_bin : small_layout.max_bins)
+            {
+                max_bin.previous_TB_indices.insert(max_bin.previous_TB_indices.begin(), partition_idx);
+                hibf_layout.max_bins.push_back(max_bin);
+            }
+
+            for (auto const & user_bin : small_layout.user_bins)
+            {
+                auto & actual_user_bin = hibf_layout.user_bins[user_bin.idx];
+
+                actual_user_bin.previous_TB_indices.insert(actual_user_bin.previous_TB_indices.end(),
+                                                           user_bin.previous_TB_indices.begin(),
+                                                           user_bin.previous_TB_indices.end());
+                actual_user_bin.number_of_technical_bins = user_bin.number_of_technical_bins;
+                actual_user_bin.storage_TB_id = user_bin.storage_TB_id;
+            }
+        }
+
+        ++partition_idx;
+    }
 }
 
 int execute(chopper::configuration & config, std::vector<std::vector<std::string>> const & filenames)
@@ -802,14 +1025,25 @@ int execute(chopper::configuration & config, std::vector<std::vector<std::string
                 return ps;
             }(); // GCOVR_EXCL_LINE
 
-            dp_algorithm_timer.start();
-            hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config,
-                                                              kmer_counts,
-                                                              sketches,
-                                                              std::move(positions),
-                                                              union_estimation_timer,
-                                                              rearrangement_timer);
-            dp_algorithm_timer.stop();
+            fast_layout(config, positions, kmer_counts, sketches, hibf_layout);
+
+            // dp_algorithm_timer.start();
+            // hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config,
+            //                                                   kmer_counts,
+            //                                                   sketches,
+            //                                                   std::move(positions),
+            //                                                   union_estimation_timer,
+            //                                                   rearrangement_timer);
+            // dp_algorithm_timer.stop();
+
+            // sort records ascending by the number of bin indices (corresponds to the IBF levels)
+            // GCOVR_EXCL_START
+            std::ranges::sort(hibf_layout.max_bins,
+                            [](auto const & r, auto const & l)
+                            {
+                                return r.previous_TB_indices.size() < l.previous_TB_indices.size();
+                            });
+            // GCOVR_EXCL_STOP
 
             if (config.output_verbose_statistics)
             {
@@ -864,7 +1098,10 @@ int execute(chopper::configuration & config, std::vector<std::vector<std::string
         seqan::hibf::sketch::compute_sketches_with_minhash(config.hibf_config, cardinalities, sketches, minHash_sketches);
         compute_sketches_timer.stop();
 
-        partition_user_bins(config, cardinalities, sketches, positions, minHash_sketches);
+        std::vector<size_t> ps;
+        ps.resize(cardinalities.size());
+        std::iota(ps.begin(), ps.end(), 0);
+        partition_user_bins(config, ps, cardinalities, sketches, positions, minHash_sketches);
 
         std::vector<seqan::hibf::layout::layout> hibf_layouts(config.number_of_partitions); // multiple layouts
 
