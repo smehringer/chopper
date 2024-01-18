@@ -281,6 +281,144 @@ void partition_user_bins(chopper::configuration const & config,
     }
 }
 
+bool do_I_need_a_fast_layout(chopper::configuration const & config, std::vector<size_t> const & positions, std::vector<size_t> const & cardinalities)
+{
+    // the fast layout heuristic would greedily merge even if merging only 2 bins at a time
+    // merging only little number of bins is highly disadvantegous for lower levels because few bins
+    // will be heavily split and this will raise the fpr correction for split bins
+    // Thus, if the average number of user bins per technical bin is less then 64, we should not fast layout
+    if (positions.size() < (64 * config.hibf_config.tmax))
+        return false;
+
+    if (positions.size() > 500'000) // layout takes more than half a day (should this be a user option?)
+        return true;
+
+    size_t largest_size{0};
+    size_t sum_of_cardinalities{0};
+
+    for (size_t const i : positions)
+    {
+        sum_of_cardinalities += cardinalities[i];
+        largest_size = std::max(largest_size, cardinalities[i]);
+    }
+
+    size_t const cardinality_per_tb = sum_of_cardinalities / config.hibf_config.tmax;
+
+    bool const largest_user_bin_might_be_split = largest_size > cardinality_per_tb;
+
+    // if no splitting is needed, its worth it to use a fast-merge-only algorithm
+    if (!largest_user_bin_might_be_split)
+        return true;
+
+    return false;
+}
+
+size_t determine_max_bin(std::vector<std::vector<size_t>> const & positions,
+                         std::vector<seqan::hibf::sketch::hyperloglog> const & sketches)
+{
+    size_t max_bin_id{0};
+    size_t max_size{0};
+
+    for (size_t i = 0; i < positions.size(); ++i)
+    {
+        seqan::hibf::sketch::hyperloglog tb{positions[i][0]}; // init
+        for (auto const pos : positions[i])
+            tb.merge(sketches[pos]);
+
+        if (tb.estimate() > max_size)
+        {
+            max_bin_id = i;
+            max_size = tb.estimate();
+        }
+    }
+
+    return max_bin_id;
+}
+
+void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
+                         std::vector<std::vector<size_t>> const & positions,
+                         std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+                         std::vector<size_t> previous_TB_indices)
+{
+    hibf_layout.max_bins.emplace_back(previous_TB_indices, determine_max_bin(positions, sketches)); // add lower level meta information
+
+    // we assume here that the user bins have been sorted by user bin id such that pos = idx
+    size_t partition_idx{0};
+    for (auto const & partition : positions)
+    {
+        for (size_t const user_bin_id : partition)
+        {
+            assert(hibf_layout.user_bins[user_bin_id].idx = user_bin_id);
+            auto & current_user_bin = hibf_layout.user_bins[user_bin_id];
+
+            // update
+            current_user_bin.previous_TB_indices = previous_TB_indices;
+            current_user_bin.storage_TB_id = partition_idx;
+            current_user_bin.number_of_technical_bins = 1;
+        }
+        ++partition_idx;
+    }
+}
+
+int fast_layout_recursion(chopper::configuration const & config,
+            std::vector<size_t> const & positions,
+            std::vector<size_t> const & cardinalities,
+            std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+            seqan::hibf::layout::layout & hibf_layout)
+{
+
+    std::vector<std::vector<size_t>> tmax_partitions(config.hibf_config.tmax);
+
+    // here we assume that we want to start with a fast layout
+    partition_user_bins(config, cardinalities, sketches, tmax_partitions);
+
+    add_level_to_layout(hibf_layout, tmax_partitions, sketches, {});
+
+    for (auto const & partition : tmax_partitions)
+    {
+        if (do_I_need_a_fast_layout(config, partition, cardinalities))
+            general_layout(partition); // todo
+        else
+            fast_layout_recursion(config, partition, cardinalities, sketches, hibf_layout); // recurse fast_layout
+    }
+}
+
+int fast_layout(chopper::configuration const & config,
+                std::vector<size_t> const & positions,
+                std::vector<size_t> const & cardinalities,
+                std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+                seqan::hibf::layout::layout & hibf_layout)
+{
+    std::vector<std::vector<size_t>> tmax_partitions(config.hibf_config.tmax);
+
+    // here we assume that we want to start with a fast layout
+    partition_user_bins(config, cardinalities, sketches, tmax_partitions);
+
+    hibf_layout.max_bins.emplace_back(std::vector<size_t>{}, determine_max_bin(tmax_partitions, sketches));
+
+    size_t partition_idx{0};
+    hibf_layout.user_bins.resize(config.hibf_config.number_of_user_bins);
+    for (auto const & partition : tmax_partitions)
+    {
+        for (size_t const user_bin_id : partition)
+        {
+            hibf_layout.user_bins[user_bin_id] = {.previous_TB_indices = {},
+                                                  .storage_TB_id = partition_idx,
+                                                  .number_of_technical_bins = 1,
+                                                  .idx = user_bin_id};
+        }
+        ++partition_idx;
+    }
+
+    for (auto const & partition : tmax_partitions)
+    {
+        if (do_I_need_a_fast_layout(config, partition, cardinalities))
+            general_layout(partition); // todo
+        else
+            fast_layout_recursion(config, partition, cardinalities, sketches, hibf_layout); // recurse fast_layout
+    }
+}
+
 int execute(chopper::configuration & config, std::vector<std::vector<std::string>> const & filenames)
 {
     assert(config.hibf_config.number_of_user_bins > 0);
