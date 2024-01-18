@@ -34,10 +34,16 @@ public:
     Cluster& operator=(Cluster&&) = default;
     ~Cluster() = default;
 
-    Cluster(size_t id)
+    Cluster(size_t const id)
     {
         representative_id = id;
         user_bins = {id};
+    }
+
+    Cluster(size_t const id, size_t const user_bins_id)
+    {
+        representative_id = id;
+        user_bins = {user_bins_id};
     }
 
     size_t id() const
