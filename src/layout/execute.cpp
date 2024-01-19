@@ -39,16 +39,15 @@ namespace chopper::layout
 {
 
 void partition_user_bins(chopper::configuration const & config,
+                         std::vector<size_t> const & positions,
                          std::vector<size_t> const & cardinalities,
                          std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
-                         std::vector<std::vector<size_t>> & positions)
+                         std::vector<std::vector<size_t>> & partitions)
 {
     // all approaches need sorted positions
-    std::vector<size_t> const sorted_positions = [&cardinalities]()
+    std::vector<size_t> const sorted_positions = [&positions, &cardinalities]()
     {
-        std::vector<size_t> ps;
-        ps.resize(cardinalities.size());
-        std::iota(ps.begin(), ps.end(), 0);
+        std::vector<size_t> ps(positions.begin(), positions.end());
         seqan::hibf::sketch::toolbox::sort_by_cardinalities(cardinalities, ps);
         return ps;
     }();
@@ -65,7 +64,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[current_part].push_back(current_user_bin_id);
+            partitions[current_part].push_back(current_user_bin_id);
             ++current_block_count;
 
             if (current_block_count >= block_size)
@@ -88,7 +87,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[current_part].push_back(current_user_bin_id);
+            partitions[current_part].push_back(current_user_bin_id);
             current_cardinality += cardinalities[current_user_bin_id];
 
             if (current_cardinality >= cardinality_per_part)
@@ -117,7 +116,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[parts[current_part]].push_back(current_user_bin_id);
+            partitions[parts[current_part]].push_back(current_user_bin_id);
             current_cardinality += cardinalities[current_user_bin_id];
 
             if (current_cardinality >= cardinality_per_part_halved)
@@ -147,7 +146,7 @@ void partition_user_bins(chopper::configuration const & config,
             {
                 double const weight = static_cast<double>(current_cardinality) / cardinality_per_part;
                 double const amount =
-                    static_cast<double>(positions[current_part].size() + small_bins.size() + new_small_bin_addition)
+                    static_cast<double>(partitions[current_part].size() + small_bins.size() + new_small_bin_addition)
                     / u_bins_per_part;
                 return std::abs(1.0 - weight) + std::abs(1.0 - amount);
             };
@@ -155,7 +154,7 @@ void partition_user_bins(chopper::configuration const & config,
             // first add all large bins that fit
             while (current_cardinality < cardinality_per_part)
             {
-                positions[current_part].push_back(sorted_positions[current_big_pos]);
+                partitions[current_part].push_back(sorted_positions[current_big_pos]);
                 current_cardinality += cardinalities[sorted_positions[current_big_pos]];
                 ++current_big_pos;
             }
@@ -191,19 +190,19 @@ void partition_user_bins(chopper::configuration const & config,
                 }
                 else // update
                 {
-                    positions[current_part].pop_back();
+                    partitions[current_part].pop_back();
                     --current_big_pos;
                     for (size_t pos = cache_last_small_pos; pos > current_small_pos; --pos)
                         small_bins.push_back(sorted_positions[pos]);
                 }
             }
-            positions[current_part].insert(positions[current_part].end(), small_bins.begin(), small_bins.end());
+            partitions[current_part].insert(partitions[current_part].end(), small_bins.begin(), small_bins.end());
         }
 
         // remaining user bins go to last partition
         while (current_big_pos <= current_small_pos)
         {
-            positions[config.number_of_partitions - 1].push_back(sorted_positions[current_big_pos]);
+            partitions[config.number_of_partitions - 1].push_back(sorted_positions[current_big_pos]);
             ++current_big_pos;
         }
     }
@@ -231,7 +230,7 @@ void partition_user_bins(chopper::configuration const & config,
             {
                 partition_sketches[p].merge(sketches[sorted_positions[block_size * p + x]]);
                 partition_cardinality[p] += cardinalities[sorted_positions[block_size * p + x]];
-                positions[p].push_back(sorted_positions[block_size * p + x]);
+                partitions[p].push_back(sorted_positions[block_size * p + x]);
             }
         }
 
@@ -273,12 +272,36 @@ void partition_user_bins(chopper::configuration const & config,
             // now that we know which partition fits best (`best_p`), add those indices to it
             for (size_t x = 0; x < block_size && ((block_size * i + x) < sorted_positions.size()); ++x)
             {
-                positions[best_p].push_back(sorted_positions[block_size * i + x]);
+                partitions[best_p].push_back(sorted_positions[block_size * i + x]);
                 partition_cardinality[best_p] += cardinalities[sorted_positions[block_size * i + x]];
             }
             partition_sketches[best_p].merge(current_sketch);
         }
     }
+}
+
+
+seqan::hibf::layout::layout general_layout(chopper::configuration const & config,
+                std::vector<size_t> positions,
+                std::vector<size_t> const & cardinalities,
+                std::vector<seqan::hibf::sketch::hyperloglog> const & sketches)
+{
+    seqan::hibf::layout::layout hibf_layout;
+
+    seqan::hibf::concurrent_timer union_estimation_timer{};
+    seqan::hibf::concurrent_timer rearrangement_timer{};
+    seqan::hibf::concurrent_timer dp_algorithm_timer{};
+
+    dp_algorithm_timer.start();
+    hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config,
+                                                      cardinalities,
+                                                      sketches,
+                                                      std::move(positions),
+                                                      union_estimation_timer,
+                                                      rearrangement_timer);
+    dp_algorithm_timer.stop();
+
+    return hibf_layout;
 }
 
 bool do_I_need_a_fast_layout(chopper::configuration const & config, std::vector<size_t> const & positions, std::vector<size_t> const & cardinalities)
@@ -321,7 +344,7 @@ size_t determine_max_bin(std::vector<std::vector<size_t>> const & positions,
 
     for (size_t i = 0; i < positions.size(); ++i)
     {
-        seqan::hibf::sketch::hyperloglog tb{positions[i][0]}; // init
+        seqan::hibf::sketch::hyperloglog tb{sketches[positions[i][0]]}; // init
         for (auto const pos : positions[i])
             tb.merge(sketches[pos]);
 
@@ -360,7 +383,7 @@ void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
     }
 }
 
-int fast_layout_recursion(chopper::configuration const & config,
+void fast_layout_recursion(chopper::configuration const & config,
             std::vector<size_t> const & positions,
             std::vector<size_t> const & cardinalities,
             std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
@@ -370,20 +393,26 @@ int fast_layout_recursion(chopper::configuration const & config,
     std::vector<std::vector<size_t>> tmax_partitions(config.hibf_config.tmax);
 
     // here we assume that we want to start with a fast layout
-    partition_user_bins(config, cardinalities, sketches, tmax_partitions);
+    partition_user_bins(config, positions, cardinalities, sketches, tmax_partitions);
 
     add_level_to_layout(hibf_layout, tmax_partitions, sketches, {});
 
     for (auto const & partition : tmax_partitions)
     {
         if (do_I_need_a_fast_layout(config, partition, cardinalities))
-            general_layout(partition); // todo
+        {
+            auto small_layout = general_layout(config, partition, cardinalities, sketches); // todo
+            // todo update max bin information
+            // todo update user bin information
+        }
         else
+        {
             fast_layout_recursion(config, partition, cardinalities, sketches, hibf_layout); // recurse fast_layout
+        }
     }
 }
 
-int fast_layout(chopper::configuration const & config,
+void fast_layout(chopper::configuration const & config,
                 std::vector<size_t> const & positions,
                 std::vector<size_t> const & cardinalities,
                 std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
@@ -392,7 +421,7 @@ int fast_layout(chopper::configuration const & config,
     std::vector<std::vector<size_t>> tmax_partitions(config.hibf_config.tmax);
 
     // here we assume that we want to start with a fast layout
-    partition_user_bins(config, cardinalities, sketches, tmax_partitions);
+    partition_user_bins(config, positions, cardinalities, sketches, tmax_partitions);
 
     hibf_layout.max_bins.emplace_back(std::vector<size_t>{}, determine_max_bin(tmax_partitions, sketches));
 
@@ -413,9 +442,15 @@ int fast_layout(chopper::configuration const & config,
     for (auto const & partition : tmax_partitions)
     {
         if (do_I_need_a_fast_layout(config, partition, cardinalities))
-            general_layout(partition); // todo
+        {
+            auto small_layout = general_layout(config, partition, cardinalities, sketches); // todo
+            // todo update max bin information
+            // todo update user bin information
+        }
         else
+        {
             fast_layout_recursion(config, partition, cardinalities, sketches, hibf_layout); // recurse fast_layout
+        }
     }
 }
 
@@ -535,7 +570,10 @@ int execute(chopper::configuration & config, std::vector<std::vector<std::string
         seqan::hibf::sketch::compute_sketches(config.hibf_config, cardinalities, sketches);
         compute_sketches_timer.stop();
 
-        partition_user_bins(config, cardinalities, sketches, positions);
+        std::vector<size_t> ps;
+        ps.resize(cardinalities.size());
+        std::iota(ps.begin(), ps.end(), 0);
+        partition_user_bins(config, ps, cardinalities, sketches, positions);
 
         std::vector<seqan::hibf::layout::layout> hibf_layouts(config.number_of_partitions); // multiple layouts
 
