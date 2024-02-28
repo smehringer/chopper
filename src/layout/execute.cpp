@@ -20,6 +20,8 @@
 #include <tuple>
 #include <vector>
 
+#include <hibf/contrib/robin_hood.hpp>
+
 #include <chopper/configuration.hpp>
 #include <chopper/layout/determine_best_number_of_technical_bins.hpp>
 #include <chopper/layout/execute.hpp>
@@ -38,10 +40,150 @@
 namespace chopper::layout
 {
 
+uint64_t lsh_hash_the_sketch(std::vector<uint64_t> const & sketch)
+{
+    // lets just compute the sum
+    uint64_t sum{0};
+
+    for (uint64_t const hash : sketch)
+        sum += hash;
+
+    return sum;
+}
+
+std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches)
+{
+    size_t const number_of_max_minHash_sketches{16};
+    // size_t const minHash_sketche_size{10};
+
+    size_t number_of_clusters = minHash_sketches.size();
+
+    // initialise clusters
+    std::vector<std::vector<size_t>> clusters(minHash_sketches.size());
+    for (size_t user_bin_idx; user_bin_idx < minHash_sketches.size(); ++user_bin_idx)
+        clusters[user_bin_idx] = {user_bin_idx};
+
+    // refine clusters
+    size_t current_sketch_index{0};
+    while (static_cast<double>(minHash_sketches.size()) / number_of_clusters > 0.9 &&
+           current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
+    {
+std::cout << "Current number of clusters: " << number_of_clusters << std::endl;
+
+        // fill table
+        robin_hood::unordered_flat_map<uint64_t, std::vector<size_t>> table;
+
+        for (auto const & cluster : clusters)
+        {
+            if (cluster.empty())
+                continue;
+
+            size_t const representative_idx = cluster[0];
+            assert(representative_idx == clusters[representative_idx][0]); // sanity check
+
+            for (size_t const user_bin_idx : cluster)
+            {
+                uint64_t const key = lsh_hash_the_sketch(minHash_sketches[user_bin_idx][current_sketch_index]);
+                table[key].push_back(representative_idx);
+            }
+        }
+
+        // read out table
+        for (auto & [key, list] : table)
+        {
+            std::sort(list.begin(), list.end());
+            auto const end = std::unique(list.begin(), list.end());
+            auto const begin = list.begin();
+
+            // cluster bins based on this
+            auto & representative = clusters[*begin];
+            for (auto current = begin + 1; current < end; ++current)
+            {
+                auto & next = clusters[*current];
+                representative.insert(representative.end(), next.begin(), next.end());
+                next = {};
+                --number_of_clusters;
+            }
+        }
+
+        ++current_sketch_index;
+    }
+
+    // clusters are done
+    // sort clusters by size and take the largest p clusters as initial seeds for the partitioning approach.
+    // S.t. that large cohorts of similar content is already close together
+    std::sort(clusters.begin(), clusters.end(), [](auto const & v1, auto const & v2){ return v1.size() < v2.size(); });
+    // TODO: maybe: if size of clusters is equal, then sort by content size, but then I need the sketches.
+
+    return clusters;
+}
+
+
+bool find_best_partition(chopper::configuration const & config,
+                         size_t const cardinality_per_part,
+                         std::vector<size_t> const & cluster,
+                         std::vector<size_t> const & cardinalities,
+                         std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+                         std::vector<std::vector<size_t>> & positions,
+                         std::vector<seqan::hibf::sketch::hyperloglog> & partition_sketches,
+                         std::vector<size_t> & partition_cardinality)
+{
+    seqan::hibf::sketch::hyperloglog current_sketch(config.hibf_config.sketch_bits);
+
+    // initialise sketch of the current cluster
+    for (size_t const user_bin_idx : cluster)
+        current_sketch.merge(sketches[user_bin_idx]);
+
+    // TODO: afterwads check if I should again merge by how little the effective text ratio grows
+
+    // search best partition fit by similarity
+    // similarity here is defined as:
+    // "whose (<-partition) effective text size is subsumed most by the current user bin"
+    // or in other words:
+    // "which partition has the largest intersection with user bin b compared to its own (partition) size."
+    double best_subsume_ratio{0.0};
+    size_t best_p{0};
+    bool best_p_found{false};
+
+    for (size_t p = 0; p < config.number_of_partitions; ++p)
+    {
+        seqan::hibf::sketch::hyperloglog tmp = current_sketch;
+        tmp.merge(partition_sketches[p]);
+        size_t const tmp_estimate = tmp.estimate();
+        assert(tmp_estimate >= partition_cardinality[p]);
+        size_t const change = tmp_estimate - partition_cardinality[p];
+        size_t const intersection = current_sketch.estimate() - change;
+        double const subsume_ratio = static_cast<double>(intersection) / partition_cardinality[p];
+
+        if (subsume_ratio > best_subsume_ratio &&
+            partition_cardinality[p] < cardinality_per_part &&
+            tmp_estimate < (cardinality_per_part * 1.2) )
+        {
+            best_subsume_ratio = subsume_ratio;
+            best_p = p;
+            best_p_found = true;
+        }
+    }
+
+    if (!best_p_found)
+        return false;
+
+    // now that we know which partition fits best (`best_p`), add those indices to it
+    for (size_t const user_bin_idx : cluster)
+    {
+        positions[best_p].push_back(user_bin_idx);
+        partition_cardinality[best_p] += cardinalities[user_bin_idx];
+    }
+    partition_sketches[best_p].merge(current_sketch);
+
+    return true;
+}
+
 void partition_user_bins(chopper::configuration const & config,
                          std::vector<size_t> const & cardinalities,
                          std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
-                         std::vector<std::vector<size_t>> & positions)
+                         std::vector<std::vector<size_t>> & positions,
+                         std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches)
 {
     // all approaches need sorted positions
     std::vector<size_t> const sorted_positions = [&cardinalities]()
@@ -287,6 +429,61 @@ void partition_user_bins(chopper::configuration const & config,
             partition_sketches[best_p].merge(current_sketch);
         }
     }
+    else if (config.partitioning_approach == partitioning_scheme::lsh)
+    {
+        uint8_t const sketch_bits{config.hibf_config.sketch_bits};
+        std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
+                                                                         seqan::hibf::sketch::hyperloglog(sketch_bits));
+        std::vector<size_t> partition_cardinality(config.number_of_partitions, 0u);
+
+        size_t const sum_of_cardinalities = std::accumulate(cardinalities.begin(), cardinalities.end(), size_t{});
+        size_t const cardinality_per_part =
+            seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
+        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(cardinalities.size(), config.number_of_partitions);
+        size_t const block_size =
+            std::min(u_bins_per_part,
+                     chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
+        size_t const number_of_blocks = seqan::hibf::divide_and_ceil(cardinalities.size(), block_size);
+
+        // initial partitioning using locality sensitive hashing (LSH)
+        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches);
+
+        // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
+        assert(number_of_blocks >= config.number_of_partitions);
+        for (size_t p = 0; p < config.number_of_partitions; ++p)
+        {
+            for (size_t const user_bin_idx : clusters[p])
+            {
+                partition_sketches[p].merge(sketches[user_bin_idx]);
+                partition_cardinality[p] += cardinalities[user_bin_idx];
+                positions[p].push_back(user_bin_idx);
+
+                // if a single cluster already exceeds the cardinality_per_part, then the cluster mus be split
+                // over two partitions
+                if (partition_cardinality[p] > cardinality_per_part)
+                    ++p;
+            }
+        }
+
+        // assign the rest by similarity
+        assert(config.hibf_config.number_of_user_bins == clusters.size());
+        for (size_t i  = config.number_of_partitions; i < config.hibf_config.number_of_user_bins; ++i)
+        {
+            auto const & cluster = clusters[i];
+
+            if (cluster.empty())  // clusters are sorted by size. Now the empty ones start. so break
+                break;
+
+            bool const cluster_could_be_added = find_best_partition(config, cardinality_per_part, cluster, cardinalities, sketches, positions, partition_sketches, partition_cardinality);
+
+            // if the cluster is too large to be added. Add single user bins
+            if (!cluster_could_be_added)
+            {
+                for (size_t const user_bin_idx : cluster)
+                    find_best_partition(config, cardinality_per_part, {user_bin_idx}, cardinalities, sketches, positions, partition_sketches, partition_cardinality);
+            }
+        }
+    }
 }
 
 int execute(chopper::configuration & config, std::vector<std::vector<std::string>> const & filenames)
@@ -398,14 +595,15 @@ int execute(chopper::configuration & config, std::vector<std::vector<std::string
         std::vector<size_t> cardinalities;
         std::vector<seqan::hibf::sketch::hyperloglog> sketches;
         std::vector<std::vector<size_t>> positions(config.number_of_partitions); // asign positions for each partition
+        std::vector<std::vector<std::vector<uint64_t>>> minHash_sketches;
 
         // compute sketches of all user bins
         seqan::hibf::concurrent_timer compute_sketches_timer{};
         compute_sketches_timer.start();
-        seqan::hibf::sketch::compute_sketches(config.hibf_config, cardinalities, sketches);
+        seqan::hibf::sketch::compute_sketches_with_minhash(config.hibf_config, cardinalities, sketches, minHash_sketches);
         compute_sketches_timer.stop();
 
-        partition_user_bins(config, cardinalities, sketches, positions);
+        partition_user_bins(config, cardinalities, sketches, positions, minHash_sketches);
 
         std::vector<seqan::hibf::layout::layout> hibf_layouts(config.number_of_partitions); // multiple layouts
 
