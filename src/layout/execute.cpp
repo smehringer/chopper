@@ -387,14 +387,22 @@ void partition_user_bins(chopper::configuration const & config,
         }
         indices.erase(indices.begin(), indices.begin() + config.number_of_partitions);
 
-        // assign the rest by similarity
-        for (size_t const i : indices)
+        auto has_been_processed_in_init = [&config,&indices](size_t const i)
         {
-            seqan::hibf::sketch::hyperloglog current_sketch(sketch_bits);
+            bool result{false};
+            for (size_t p = 0; p < config.number_of_partitions; ++p)
+                result |= (indices[p] == i);
+            return result;
+        };
 
-            // initialise sketch of the current block of indices
-            for (size_t x = 0; x < block_size && ((block_size * i + x) < sorted_positions.size()); ++x)
-                current_sketch.merge(sketches[sorted_positions[block_size * i + x]]);
+        // assign the rest by similarity, user in by user bin (single bins, no blocks)
+        for (size_t i = 0; i < sorted_positions.size(); ++i)
+        {
+            if (has_been_processed_in_init(i))
+            {
+                i += block_size - 1; // -1 because there will be an increment after continue
+                continue;
+            }
 
             // search best partition fit by similarity
             // similarity here is defined as:
@@ -405,12 +413,12 @@ void partition_user_bins(chopper::configuration const & config,
             size_t best_p{0};
             for (size_t p = 0; p < config.number_of_partitions; ++p)
             {
-                seqan::hibf::sketch::hyperloglog tmp = current_sketch;
+                seqan::hibf::sketch::hyperloglog tmp = sketches[sorted_positions[i]];
                 tmp.merge(partition_sketches[p]);
                 size_t const tmp_estimate = tmp.estimate();
                 assert(tmp_estimate >= partition_cardinality[p]);
                 size_t const change = tmp_estimate - partition_cardinality[p];
-                size_t const intersection = current_sketch.estimate() - change;
+                size_t const intersection = cardinalities[i] - change;
                 double const subsume_ratio = static_cast<double>(intersection) / partition_cardinality[p];
 
                 if (subsume_ratio > best_subsume_ratio && partition_cardinality[p] < cardinality_per_part)
@@ -426,7 +434,7 @@ void partition_user_bins(chopper::configuration const & config,
                 positions[best_p].push_back(sorted_positions[block_size * i + x]);
                 partition_cardinality[best_p] += cardinalities[sorted_positions[block_size * i + x]];
             }
-            partition_sketches[best_p].merge(current_sketch);
+            partition_sketches[best_p].merge(sketches[sorted_positions[i]]);
         }
     }
     else if (config.partitioning_approach == partitioning_scheme::lsh)
