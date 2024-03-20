@@ -585,6 +585,35 @@ void partition_user_bins(chopper::configuration const & config,
             }
         }
     }
+
+    // sanity check:
+    size_t sum{0};
+    for (auto const & p : positions)
+        sum += p.size();
+
+    if (sum != sketches.size())
+    {
+        std::string str{"Not all user bins have been assigned to the "};
+        str += std::to_string(positions.size());
+        str += " partitions! (";
+        str += std::to_string(sum);
+        str += "/";
+        str += std::to_string(sketches.size());
+        str += ")\n";
+        for (auto const & p : positions)
+        {
+            str += "[";
+            for (auto const h : p)
+            {
+                str += std::to_string(h);
+                str += ",";
+            }
+            str.back() = ']';
+            str += '\n';
+        }
+
+        throw std::logic_error{str};
+    }
 }
 
 int execute(chopper::configuration & config, std::vector<std::vector<std::string>> const & filenames)
