@@ -480,13 +480,12 @@ void partition_user_bins(chopper::configuration const & config,
                 positions[p].push_back(sorted_positions[block_size * i + x]);
             }
         }
-        indices.erase(indices.begin(), indices.begin() + config.number_of_partitions);
 
-        auto has_been_processed_in_init = [&config,&indices](size_t const i)
+        auto has_been_processed_in_init = [&config,&indices, &block_size](size_t const i)
         {
             bool result{false};
             for (size_t p = 0; p < config.number_of_partitions; ++p)
-                result |= (indices[p] == i);
+                result |= ((indices[p] * block_size) == i);
             return result;
         };
 
@@ -495,7 +494,7 @@ void partition_user_bins(chopper::configuration const & config,
         {
             if (has_been_processed_in_init(i))
             {
-                i += block_size - 1; // -1 because there will be an increment after continue
+                i += (block_size - 1); // -1 because there will be an increment after continue
                 continue;
             }
 
@@ -513,7 +512,7 @@ void partition_user_bins(chopper::configuration const & config,
                 size_t const tmp_estimate = tmp.estimate();
                 assert(tmp_estimate >= partition_cardinality[p]);
                 size_t const change = tmp_estimate - partition_cardinality[p];
-                size_t const intersection = cardinalities[i] - change;
+                size_t const intersection = cardinalities[sorted_positions[i]] - change;
                 double const subsume_ratio = static_cast<double>(intersection) / partition_cardinality[p];
 
                 if (subsume_ratio > best_subsume_ratio && partition_cardinality[p] < cardinality_per_part)
@@ -524,11 +523,9 @@ void partition_user_bins(chopper::configuration const & config,
             }
 
             // now that we know which partition fits best (`best_p`), add those indices to it
-            for (size_t x = 0; x < block_size && ((block_size * i + x) < sorted_positions.size()); ++x)
-            {
-                positions[best_p].push_back(sorted_positions[block_size * i + x]);
-                partition_cardinality[best_p] += cardinalities[sorted_positions[block_size * i + x]];
-            }
+
+            positions[best_p].push_back(sorted_positions[i]);
+            partition_cardinality[best_p] += cardinalities[sorted_positions[i]];
             partition_sketches[best_p].merge(sketches[sorted_positions[i]]);
         }
     }
