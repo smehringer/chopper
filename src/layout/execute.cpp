@@ -224,10 +224,14 @@ bool find_best_partition(chopper::configuration const & config,
                          std::vector<size_t> & partition_cardinality)
 {
     seqan::hibf::sketch::hyperloglog current_sketch(config.hibf_config.sketch_bits);
+    size_t current_cardinality{0};
 
     // initialise sketch of the current cluster
     for (size_t const user_bin_idx : cluster)
+    {
         current_sketch.merge(sketches[user_bin_idx]);
+        current_cardinality += cardinalities[user_bin_idx];
+    }
 
     // TODO: afterwads check if I should again merge by how little the effective text ratio grows
 
@@ -245,14 +249,15 @@ bool find_best_partition(chopper::configuration const & config,
         seqan::hibf::sketch::hyperloglog tmp = current_sketch;
         tmp.merge(partition_sketches[p]);
         size_t const tmp_estimate = tmp.estimate();
-        assert(tmp_estimate >= partition_cardinality[p]);
-        size_t const change = tmp_estimate - partition_cardinality[p];
+        size_t const current_partition_size = partition_sketches[p].estimate();
+        assert(tmp_estimate >= current_partition_size);
+        size_t const change = tmp_estimate - current_partition_size;
         size_t const intersection = current_sketch.estimate() - change;
-        double const subsume_ratio = static_cast<double>(intersection) / partition_cardinality[p];
+        double const subsume_ratio = static_cast<double>(intersection) / current_partition_size;
 
         if (subsume_ratio > best_subsume_ratio &&
             partition_cardinality[p] < cardinality_per_part &&
-            tmp_estimate < (cardinality_per_part * 1.2) )
+            (current_cardinality + partition_cardinality[p]) < (cardinality_per_part * 1.2) )
         {
             best_subsume_ratio = subsume_ratio;
             best_p = p;
@@ -510,10 +515,11 @@ void partition_user_bins(chopper::configuration const & config,
                 seqan::hibf::sketch::hyperloglog tmp = sketches[sorted_positions[i]];
                 tmp.merge(partition_sketches[p]);
                 size_t const tmp_estimate = tmp.estimate();
-                assert(tmp_estimate >= partition_cardinality[p]);
-                size_t const change = tmp_estimate - partition_cardinality[p];
+                size_t const tmp_partition_estimate = partition_sketches[p].estimate();
+                assert(tmp_estimate >= tmp_partition_estimate);
+                size_t const change = tmp_estimate - tmp_partition_estimate;
                 size_t const intersection = cardinalities[sorted_positions[i]] - change;
-                double const subsume_ratio = static_cast<double>(intersection) / partition_cardinality[p];
+                double const subsume_ratio = static_cast<double>(intersection) / tmp_partition_estimate;
 
                 if (subsume_ratio > best_subsume_ratio && partition_cardinality[p] < cardinality_per_part)
                 {
@@ -543,11 +549,43 @@ void partition_user_bins(chopper::configuration const & config,
         // initial partitioning using locality sensitive hashing (LSH)
         std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches);
 
+// debug
+    // sanity check:
+    size_t sum{0};
+    for (auto const & p : clusters)
+        sum += p.size();
+
+    if (sum != sketches.size())
+    {
+        std::string str{"Clusters are wrong "};
+        str += "! (";
+        str += std::to_string(sum);
+        str += "/";
+        str += std::to_string(clusters.size());
+        str += ")\n";
+        for (auto const & p : clusters)
+        {
+            str += "[";
+            for (auto const h : p)
+            {
+                str += std::to_string(h);
+                str += ",";
+            }
+            str.back() = ']';
+            str += '\n';
+        }
+
+        throw std::logic_error{str};
+    }
+//debug
+
         // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
+        size_t cidx{0}; // current cluster index
+        size_t cidx_inner_idx{0};
         for (size_t p = 0; p < config.number_of_partitions; ++p)
         {
-            assert(!clusters[p].empty());
-            for (size_t const user_bin_idx : clusters[p])
+            assert(!clusters[cidx].empty());
+            for (size_t user_bin_idx = cidx_inner_idx; user_bin_idx < clusters[cidx].size(); ++user_bin_idx)
             {
                 partition_sketches[p].merge(sketches[user_bin_idx]);
                 partition_cardinality[p] += cardinalities[user_bin_idx];
@@ -556,15 +594,22 @@ void partition_user_bins(chopper::configuration const & config,
                 // if a single cluster already exceeds the cardinality_per_part, then the cluster mus be split
                 // over two partitions
                 if (partition_cardinality[p] > cardinality_per_part)
-                    ++p;
+                {
+                    cidx_inner_idx = user_bin_idx + 1;
+                    break;
+                }
+                cidx_inner_idx = 0;
             }
+
+            if (cidx_inner_idx == 0) // for loop didn't end early
+                ++cidx;
         }
 
         // assign the rest by similarity
         assert(config.hibf_config.number_of_user_bins == clusters.size());
-        for (size_t i = config.number_of_partitions; i < config.hibf_config.number_of_user_bins; ++i)
+        for (; cidx < config.hibf_config.number_of_user_bins; ++cidx)
         {
-            auto const & cluster = clusters[i];
+            auto const & cluster = clusters[cidx];
 
             if (cluster.empty()) // non valid clusters have been removed. Since list was sorted, we can abort
                 break;
