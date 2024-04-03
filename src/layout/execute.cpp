@@ -109,7 +109,7 @@ std::cout << "Current number of clusters: " << number_of_clusters << std::endl;
                 table[key].push_back(representative_id); // insert representative for all user bins
             }
         }
-        assert(processed_user_bins == sketches.size()); // all user bins should've been processed by one of the clusters
+        assert(processed_user_bins == minHash_sketches.size()); // all user bins should've been processed by one of the clusters
 
         // read out table
         for (auto & [key, list] : table)
@@ -199,7 +199,7 @@ std::cout << "Current number of clusters: " << number_of_clusters << std::endl;
     // remove non_valid clusters
     for (size_t pos = 0; pos < clusters.size(); ++pos)
     {
-        assert(((current.size() == 1) && (clusters[pos][0] != pos)) || (clusters[pos][0] == pos));
+        assert(((clusters[pos].size() == 1) && (clusters[pos][0] != pos)) || (clusters[pos][0] == pos));
 
         if (clusters[pos][0] != pos)
             clusters[pos].clear();
