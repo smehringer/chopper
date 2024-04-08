@@ -579,30 +579,56 @@ void partition_user_bins(chopper::configuration const & config,
     }
 //debug
 
+    size_t check_sum{0};
+    for (auto const & cluster : clusters)
+    {
+        for (size_t const user_bin_idx : cluster)
+        {
+            check_sum += cardinalities[user_bin_idx];
+        }
+    }
+
+    if (check_sum != sum_of_cardinalities)
+    {
+        throw std::runtime_error{" sum does not match: " + std::to_string(check_sum) + "!=" + std::to_string(sum_of_cardinalities)};
+    }
+
         // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
         size_t cidx{0}; // current cluster index
-        size_t cidx_inner_idx{0};
         for (size_t p = 0; p < config.number_of_partitions; ++p)
         {
             assert(!clusters[cidx].empty());
-            for (size_t user_bin_idx = cidx_inner_idx; user_bin_idx < clusters[cidx].size(); ++user_bin_idx)
+            bool p_has_been_incremented{false};
+
+            for (size_t uidx = 0; uidx < clusters[cidx].size(); ++uidx)
             {
+                size_t const user_bin_idx = clusters[cidx][uidx];
+                // if a single cluster already exceeds the cardinality_per_part,
+                // then the remaining user bins of the cluster must spill over into the next partition
+                if (partition_cardinality[p] > cardinality_per_part)
+                {
+                    ++p;
+                    p_has_been_incremented = true;
+                    assert(p < config.number_of_partitions);
+                }
+
                 partition_sketches[p].merge(sketches[user_bin_idx]);
                 partition_cardinality[p] += cardinalities[user_bin_idx];
                 positions[p].push_back(user_bin_idx);
-
-                // if a single cluster already exceeds the cardinality_per_part, then the cluster mus be split
-                // over two partitions
-                if (partition_cardinality[p] > cardinality_per_part)
-                {
-                    cidx_inner_idx = user_bin_idx + 1;
-                    break;
-                }
-                cidx_inner_idx = 0;
             }
 
-            if (cidx_inner_idx == 0) // for loop didn't end early
-                ++cidx;
+            if (p_has_been_incremented && partition_cardinality[p] < cardinality_per_part)
+            {
+                // p will be incremeted again in the next iteration of this for loop
+                // since we have incremented p previously because of some user bins that spilled over in this currnet p
+                // we want to decrease p here, s.t. we stay at the same p.
+                // this ensures that the current p doesn't only have a small rest that just didn't fit into the
+                //  previous partition
+                assert(p > 0);
+                --p;
+            }
+
+            ++cidx;
         }
 
         // assign the rest by similarity
