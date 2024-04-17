@@ -51,7 +51,9 @@ uint64_t lsh_hash_the_sketch(std::vector<uint64_t> const & sketch)
     return sum;
 }
 
-std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches)
+std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches,
+                         std::vector<size_t> const & cardinalities,
+                         chopper::configuration const & config)
 {
     assert(!minHash_sketches.empty());
     assert(!minHash_sketches[0].empty());
@@ -79,7 +81,7 @@ std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vect
 
     // refine clusters
     size_t current_sketch_index{0};
-    while (static_cast<double>(minHash_sketches.size()) / number_of_clusters > 0.9 &&
+    while (number_of_clusters / static_cast<double>(minHash_sketches.size()) > 0.5 &&
            current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
     {
 std::cout << "Current number of clusters: " << number_of_clusters << std::endl;
@@ -203,12 +205,39 @@ std::cout << "Current number of clusters: " << number_of_clusters << std::endl;
 
         if (clusters[pos][0] != pos)
             clusters[pos].clear();
+
+        // sort ub wihtin a cluster by cardinality
+        std::sort(clusters[pos].begin(), clusters[pos].end(), [&cardinalities](auto const & v1, auto const & v2){ return cardinalities[v2] < cardinalities[v1]; });
     }
 
-    // sort clusters by size and take the largest p clusters as initial seeds for the partitioning approach.
-    // S.t. that large cohorts of similar content is already close together
-    std::sort(clusters.begin(), clusters.end(), [](auto const & v1, auto const & v2){ return v2.size() < v1.size(); });
-    // TODO: maybe: if size of clusters is equal, then sort by content size, but then I need the sketches.
+    // push largest p clusters to the front
+    std::partial_sort(clusters.begin(), clusters.begin() + config.number_of_partitions, clusters.end(), [](auto const & v1, auto const & v2){ return v2.size() < v1.size(); });
+
+    // after filling up the partitions with the biggest clusters, sort the clusters by cardinality of the biggest ub
+    // s.t. that euqally sizes ub are assigned after each other and the small stuff is added at last.
+    // the largest ub is already at the start because of former sorting.
+    auto compare_cardinality_and_move_empty_clusters_to_the_end = [&cardinalities](auto const & v1, auto const & v2)
+    {
+        if (v1.empty())
+            return false; // v1 can never be larger than v2 then
+
+        if (v2.empty()) // and v1 is not, since the first if would catch
+            return true;
+
+        return cardinalities[v2[0]] < cardinalities[v1[0]];
+    };
+    std::sort(clusters.begin() + config.number_of_partitions, clusters.end(), compare_cardinality_and_move_empty_clusters_to_the_end);
+
+    assert(clusters[0].size() >= clusters[1].size()); // sanity check
+    assert(cardinalities[clusters[config.number_of_partitions][0]] >= cardinalities[clusters[config.number_of_partitions + 1][0]]); // sanity check
+
+// debug
+    for (size_t cidx = 1; cidx < clusters.size(); ++cidx)
+    {
+        if (clusters[cidx - 1].empty() && !clusters[cidx].empty()) // once empty - always empty; all empty clusters should be at the end
+            throw std::runtime_error{"sorting did not work"};
+    }
+// debug
 
     return clusters;
 }
@@ -547,7 +576,7 @@ void partition_user_bins(chopper::configuration const & config,
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
         // initial partitioning using locality sensitive hashing (LSH)
-        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches);
+        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, config);
 
 // debug
     // sanity check:
