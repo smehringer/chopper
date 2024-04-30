@@ -21,12 +21,13 @@ namespace chopper
 
 enum partitioning_scheme
 {
-    blocked,
-    sorted,
-    folded,
-    weighted_fold,
-    similarity,
-    lsh
+    blocked,       // 0
+    sorted,        // 1
+    folded,        // 2
+    weighted_fold, // 3
+    similarity,    // 4
+    lsh,           // 5
+    lsh_sim        // 6
 };
 
 struct configuration

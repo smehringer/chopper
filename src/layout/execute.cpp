@@ -84,7 +84,7 @@ std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vect
     while (number_of_clusters / static_cast<double>(minHash_sketches.size()) > 0.5 &&
            current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
     {
-std::cout << "Current number of clusters: " << number_of_clusters << std::endl;
+std::cout << "Current number of clusters: " << number_of_clusters;
 
         // fill table
         robin_hood::unordered_flat_map<uint64_t, std::vector<size_t>> table;
@@ -195,6 +195,8 @@ std::cout << "Current number of clusters: " << number_of_clusters << std::endl;
         }
 
         ++current_sketch_index;
+
+std::cout << " and after this clustering step there are: " << number_of_clusters << std::endl;
     }
 
     // clusters are done
@@ -578,50 +580,6 @@ void partition_user_bins(chopper::configuration const & config,
         // initial partitioning using locality sensitive hashing (LSH)
         std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, config);
 
-// debug
-    // sanity check:
-    size_t sum{0};
-    for (auto const & p : clusters)
-        sum += p.size();
-
-    if (sum != sketches.size())
-    {
-        std::string str{"Clusters are wrong "};
-        str += "! (";
-        str += std::to_string(sum);
-        str += "/";
-        str += std::to_string(clusters.size());
-        str += ")\n";
-        for (auto const & p : clusters)
-        {
-            str += "[";
-            for (auto const h : p)
-            {
-                str += std::to_string(h);
-                str += ",";
-            }
-            str.back() = ']';
-            str += '\n';
-        }
-
-        throw std::logic_error{str};
-    }
-//debug
-
-    size_t check_sum{0};
-    for (auto const & cluster : clusters)
-    {
-        for (size_t const user_bin_idx : cluster)
-        {
-            check_sum += cardinalities[user_bin_idx];
-        }
-    }
-
-    if (check_sum != sum_of_cardinalities)
-    {
-        throw std::runtime_error{" sum does not match: " + std::to_string(check_sum) + "!=" + std::to_string(sum_of_cardinalities)};
-    }
-
         // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
         size_t cidx{0}; // current cluster index
         for (size_t p = 0; p < config.number_of_partitions; ++p)
@@ -680,6 +638,82 @@ void partition_user_bins(chopper::configuration const & config,
                     assert(found); // there should always be at least one partition that has enough space left
                 }
             }
+        }
+    }
+    else if (config.partitioning_approach == partitioning_scheme::lsh_sim)
+    {
+        uint8_t const sketch_bits{config.hibf_config.sketch_bits};
+        std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
+                                                                         seqan::hibf::sketch::hyperloglog(sketch_bits));
+        std::vector<size_t> partition_cardinality(config.number_of_partitions, 0u);
+
+        size_t const sum_of_cardinalities = std::accumulate(cardinalities.begin(), cardinalities.end(), size_t{});
+        size_t const cardinality_per_part =
+            seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
+
+        // initial partitioning using locality sensitive hashing (LSH)
+        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, config);
+
+        // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
+        size_t cidx{0}; // current cluster index
+        for (size_t p = 0; p < config.number_of_partitions; ++p)
+        {
+            assert(!clusters[cidx].empty());
+            bool p_has_been_incremented{false};
+
+            for (size_t uidx = 0; uidx < clusters[cidx].size(); ++uidx)
+            {
+                size_t const user_bin_idx = clusters[cidx][uidx];
+                // if a single cluster already exceeds the cardinality_per_part,
+                // then the remaining user bins of the cluster must spill over into the next partition
+                if (partition_cardinality[p] > cardinality_per_part)
+                {
+                    ++p;
+                    p_has_been_incremented = true;
+                    assert(p < config.number_of_partitions);
+                }
+
+                partition_sketches[p].merge(sketches[user_bin_idx]);
+                partition_cardinality[p] += cardinalities[user_bin_idx];
+                positions[p].push_back(user_bin_idx);
+            }
+
+            if (p_has_been_incremented && partition_cardinality[p] < cardinality_per_part)
+            {
+                // p will be incremeted again in the next iteration of this for loop
+                // since we have incremented p previously because of some user bins that spilled over in this currnet p
+                // we want to decrease p here, s.t. we stay at the same p.
+                // this ensures that the current p doesn't only have a small rest that just didn't fit into the
+                //  previous partition
+                assert(p > 0);
+                --p;
+            }
+
+            ++cidx;
+        }
+
+        // assign the rest, ub by ub, by similarity
+        assert(config.hibf_config.number_of_user_bins == clusters.size());
+        std::vector<size_t> remaining_ubs{};
+        for (; cidx < config.hibf_config.number_of_user_bins; ++cidx)
+        {
+            auto const & cluster = clusters[cidx];
+
+            if (cluster.empty()) // non valid clusters have been removed. Since list was sorted, we can abort
+                break;
+
+            remaining_ubs.insert(remaining_ubs.end(), cluster.begin(), cluster.end());
+        }
+
+        std::sort(remaining_ubs.begin(), remaining_ubs.end(),
+            [&cardinalities] (size_t const ub1, size_t const ub2) { return cardinalities[ub2] < cardinalities[ub1]; });
+
+        assert(cardinalities.size() < 2 || cardinalities[0] > cardinalities[1]);
+
+        for (size_t const user_bin_idx : remaining_ubs)
+        {
+            bool const found = find_best_partition(config, cardinality_per_part, {user_bin_idx}, cardinalities, sketches, positions, partition_sketches, partition_cardinality);
+            assert(found); // there should always be at least one partition that has enough space left
         }
     }
 
