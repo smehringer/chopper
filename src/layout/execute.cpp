@@ -328,7 +328,7 @@ void partition_user_bins(chopper::configuration const & config,
 
     if (config.partitioning_approach == partitioning_scheme::blocked)
     {
-        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(cardinalities.size(), config.number_of_partitions);
+        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(sorted_positions.size(), config.number_of_partitions);
         size_t const block_size =
             std::min(u_bins_per_part,
                      chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
@@ -352,7 +352,14 @@ void partition_user_bins(chopper::configuration const & config,
     }
     else if (config.partitioning_approach == partitioning_scheme::sorted)
     {
-        size_t const sum_of_cardinalities = std::accumulate(cardinalities.begin(), cardinalities.end(), size_t{});
+        size_t const sum_of_cardinalities = [&positions, &cardinalities]()
+        {
+            size_t sum;
+            for (size_t const pos : positions)
+                sum += cardinalities[pos];
+            return sum;
+        }();
+
         size_t const cardinality_per_part =
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
@@ -373,7 +380,13 @@ void partition_user_bins(chopper::configuration const & config,
     }
     else if (config.partitioning_approach == partitioning_scheme::folded)
     {
-        size_t const sum_of_cardinalities = std::accumulate(cardinalities.begin(), cardinalities.end(), size_t{});
+        size_t const sum_of_cardinalities = [&positions, &cardinalities]()
+        {
+            size_t sum;
+            for (size_t const pos : positions)
+                sum += cardinalities[pos];
+            return sum;
+        }();
         size_t const cardinality_per_part_halved =
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions * 2);
 
@@ -402,7 +415,13 @@ void partition_user_bins(chopper::configuration const & config,
     }
     else if (config.partitioning_approach == partitioning_scheme::weighted_fold)
     {
-        size_t const sum_of_cardinalities = std::accumulate(cardinalities.begin(), cardinalities.end(), size_t{});
+        size_t const sum_of_cardinalities = [&positions, &cardinalities]()
+        {
+            size_t sum;
+            for (size_t const pos : positions)
+                sum += cardinalities[pos];
+            return sum;
+        }();
         size_t const cardinality_per_part =
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
         size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(cardinalities.size(), config.number_of_partitions);
@@ -487,14 +506,20 @@ void partition_user_bins(chopper::configuration const & config,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
         std::vector<size_t> partition_cardinality(config.number_of_partitions, 0u);
 
-        size_t const sum_of_cardinalities = std::accumulate(cardinalities.begin(), cardinalities.end(), size_t{});
+        size_t const sum_of_cardinalities = [&positions, &cardinalities]()
+        {
+            size_t sum;
+            for (size_t const pos : positions)
+                sum += cardinalities[pos];
+            return sum;
+        }();
         size_t const cardinality_per_part =
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
-        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(cardinalities.size(), config.number_of_partitions);
+        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(positions.size(), config.number_of_partitions);
         size_t const block_size =
             std::min(u_bins_per_part,
                      chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
-        size_t const number_of_blocks = seqan::hibf::divide_and_ceil(cardinalities.size(), block_size);
+        size_t const number_of_blocks = seqan::hibf::divide_and_ceil(positions.size(), block_size);
 
         // don't move from largest to smallest but pick the next block to process randomly.
         // this probably leads to more evenly distributed partitions (evenly in terms of number of user bins)
@@ -573,7 +598,13 @@ void partition_user_bins(chopper::configuration const & config,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
         std::vector<size_t> partition_cardinality(config.number_of_partitions, 0u);
 
-        size_t const sum_of_cardinalities = std::accumulate(cardinalities.begin(), cardinalities.end(), size_t{});
+        size_t const sum_of_cardinalities = [&positions, &cardinalities]()
+        {
+            size_t sum;
+            for (size_t const pos : positions)
+                sum += cardinalities[pos];
+            return sum;
+        }();
         size_t const cardinality_per_part =
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
@@ -647,7 +678,13 @@ void partition_user_bins(chopper::configuration const & config,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
         std::vector<size_t> partition_cardinality(config.number_of_partitions, 0u);
 
-        size_t const sum_of_cardinalities = std::accumulate(cardinalities.begin(), cardinalities.end(), size_t{});
+        size_t const sum_of_cardinalities = [&positions, &cardinalities]()
+        {
+            size_t sum;
+            for (size_t const pos : positions)
+                sum += cardinalities[pos];
+            return sum;
+        }();
         size_t const cardinality_per_part =
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
