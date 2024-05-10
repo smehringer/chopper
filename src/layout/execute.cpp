@@ -354,7 +354,7 @@ void partition_user_bins(chopper::configuration const & config,
     {
         size_t const sum_of_cardinalities = [&positions, &cardinalities]()
         {
-            size_t sum;
+            size_t sum{0};
             for (size_t const pos : positions)
                 sum += cardinalities[pos];
             return sum;
@@ -382,7 +382,7 @@ void partition_user_bins(chopper::configuration const & config,
     {
         size_t const sum_of_cardinalities = [&positions, &cardinalities]()
         {
-            size_t sum;
+            size_t sum{0};
             for (size_t const pos : positions)
                 sum += cardinalities[pos];
             return sum;
@@ -417,7 +417,7 @@ void partition_user_bins(chopper::configuration const & config,
     {
         size_t const sum_of_cardinalities = [&positions, &cardinalities]()
         {
-            size_t sum;
+            size_t sum{0};
             for (size_t const pos : positions)
                 sum += cardinalities[pos];
             return sum;
@@ -508,7 +508,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         size_t const sum_of_cardinalities = [&positions, &cardinalities]()
         {
-            size_t sum;
+            size_t sum{0};
             for (size_t const pos : positions)
                 sum += cardinalities[pos];
             return sum;
@@ -600,7 +600,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         size_t const sum_of_cardinalities = [&positions, &cardinalities]()
         {
-            size_t sum;
+            size_t sum{0};
             for (size_t const pos : positions)
                 sum += cardinalities[pos];
             return sum;
@@ -680,7 +680,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         size_t const sum_of_cardinalities = [&positions, &cardinalities]()
         {
-            size_t sum;
+            size_t sum{0};
             for (size_t const pos : positions)
                 sum += cardinalities[pos];
             return sum;
