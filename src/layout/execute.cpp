@@ -509,8 +509,10 @@ void partition_user_bins(chopper::configuration const & config,
         for (size_t p = 0; p < config.number_of_partitions; ++p)
         {
             size_t const i = indices[p];
-            for (size_t x = 0; x < block_size; ++x)
+            size_t const end = (i == (indices.size() - 1) && (positions.size() % block_size != 0)) ? (positions.size() % block_size) : block_size;
+            for (size_t x = 0; x < end; ++x)
             {
+                assert(block_size * i + x < sorted_positions.size());
                 partition_sketches[p].merge(sketches[sorted_positions[block_size * i + x]]);
                 partition_cardinality[p] += cardinalities[sorted_positions[block_size * i + x]];
                 positions[p].push_back(sorted_positions[block_size * i + x]);
