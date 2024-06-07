@@ -213,7 +213,13 @@ std::cout << " and after this clustering step there are: " << number_of_clusters
     }
 
     // push largest p clusters to the front
-    std::partial_sort(clusters.begin(), clusters.begin() + config.number_of_partitions, clusters.end(), [](auto const & v1, auto const & v2){ return v2.size() < v1.size(); });
+    auto cluster_size_cmp = [&cardinalities](auto const & v1, auto const & v2)
+    {
+        if (v2.size() == v1.size() && !v2.empty())
+            return  cardinalities[v2[0]] < cardinalities[v1[0]];
+        return v2.size() < v1.size();
+    };
+    std::partial_sort(clusters.begin(), clusters.begin() + config.number_of_partitions, clusters.end(), cluster_size_cmp);
 
     // after filling up the partitions with the biggest clusters, sort the clusters by cardinality of the biggest ub
     // s.t. that euqally sizes ub are assigned after each other and the small stuff is added at last.
