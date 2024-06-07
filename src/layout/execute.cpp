@@ -329,8 +329,8 @@ bool find_best_partition(chopper::configuration const & config,
 void partition_user_bins(chopper::configuration const & config,
                          std::vector<size_t> const & cardinalities,
                          std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
-                         std::vector<std::vector<size_t>> & partitions,
-                         std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches)
+                         std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches,
+                         std::vector<std::vector<size_t>> & partitions)
 {
     // all approaches need sorted positions
     std::vector<size_t> const sorted_positions = [&cardinalities]()
@@ -882,7 +882,7 @@ int execute(chopper::configuration & config, std::vector<std::vector<std::string
         seqan::hibf::sketch::compute_sketches_with_minhash(config.hibf_config, cardinalities, sketches, minHash_sketches);
         compute_sketches_timer.stop();
 
-        partition_user_bins(config, cardinalities, sketches, positions, minHash_sketches);
+        partition_user_bins(config, cardinalities, sketches, minHash_sketches, positions);
 
         std::vector<seqan::hibf::layout::layout> hibf_layouts(config.number_of_partitions); // multiple layouts
 
