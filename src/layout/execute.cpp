@@ -329,7 +329,7 @@ bool find_best_partition(chopper::configuration const & config,
 void partition_user_bins(chopper::configuration const & config,
                          std::vector<size_t> const & cardinalities,
                          std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
-                         std::vector<std::vector<size_t>> & positions,
+                         std::vector<std::vector<size_t>> & partitions,
                          std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches)
 {
     // all approaches need sorted positions
@@ -354,7 +354,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[current_part].push_back(current_user_bin_id);
+            partitions[current_part].push_back(current_user_bin_id);
             ++current_block_count;
 
             if (current_block_count >= block_size)
@@ -377,7 +377,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[current_part].push_back(current_user_bin_id);
+            partitions[current_part].push_back(current_user_bin_id);
             current_cardinality += cardinalities[current_user_bin_id];
 
             if (current_cardinality >= cardinality_per_part)
@@ -406,7 +406,7 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const current_user_bin_id : sorted_positions)
         {
-            positions[parts[current_part]].push_back(current_user_bin_id);
+            partitions[parts[current_part]].push_back(current_user_bin_id);
             current_cardinality += cardinalities[current_user_bin_id];
 
             if (current_cardinality >= cardinality_per_part_halved)
@@ -436,7 +436,7 @@ void partition_user_bins(chopper::configuration const & config,
             {
                 double const weight = static_cast<double>(current_cardinality) / cardinality_per_part;
                 double const amount =
-                    static_cast<double>(positions[current_part].size() + small_bins.size() + new_small_bin_addition)
+                    static_cast<double>(partitions[current_part].size() + small_bins.size() + new_small_bin_addition)
                     / u_bins_per_part;
                 return std::abs(1.0 - weight) + std::abs(1.0 - amount);
             };
@@ -444,7 +444,7 @@ void partition_user_bins(chopper::configuration const & config,
             // first add all large bins that fit
             while (current_cardinality < cardinality_per_part)
             {
-                positions[current_part].push_back(sorted_positions[current_big_pos]);
+                partitions[current_part].push_back(sorted_positions[current_big_pos]);
                 current_cardinality += cardinalities[sorted_positions[current_big_pos]];
                 ++current_big_pos;
             }
@@ -480,19 +480,19 @@ void partition_user_bins(chopper::configuration const & config,
                 }
                 else // update
                 {
-                    positions[current_part].pop_back();
+                    partitions[current_part].pop_back();
                     --current_big_pos;
                     for (size_t pos = cache_last_small_pos; pos > current_small_pos; --pos)
                         small_bins.push_back(sorted_positions[pos]);
                 }
             }
-            positions[current_part].insert(positions[current_part].end(), small_bins.begin(), small_bins.end());
+            partitions[current_part].insert(partitions[current_part].end(), small_bins.begin(), small_bins.end());
         }
 
         // remaining user bins go to last partition
         while (current_big_pos <= current_small_pos)
         {
-            positions[config.number_of_partitions - 1].push_back(sorted_positions[current_big_pos]);
+            partitions[config.number_of_partitions - 1].push_back(sorted_positions[current_big_pos]);
             ++current_big_pos;
         }
     }
@@ -531,7 +531,7 @@ void partition_user_bins(chopper::configuration const & config,
                 assert(block_size * i + x < sorted_positions.size());
                 partition_sketches[p].merge(sketches[sorted_positions[block_size * i + x]]);
                 partition_cardinality[p] += cardinalities[sorted_positions[block_size * i + x]];
-                positions[p].push_back(sorted_positions[block_size * i + x]);
+                partitions[p].push_back(sorted_positions[block_size * i + x]);
             }
         }
 
@@ -579,7 +579,7 @@ void partition_user_bins(chopper::configuration const & config,
 
             // now that we know which partition fits best (`best_p`), add those indices to it
 
-            positions[best_p].push_back(sorted_positions[i]);
+            partitions[best_p].push_back(sorted_positions[i]);
             partition_cardinality[best_p] += cardinalities[sorted_positions[i]];
             partition_sketches[best_p].merge(sketches[sorted_positions[i]]);
         }
@@ -619,7 +619,7 @@ void partition_user_bins(chopper::configuration const & config,
 
                 partition_sketches[p].merge(sketches[user_bin_idx]);
                 partition_cardinality[p] += cardinalities[user_bin_idx];
-                positions[p].push_back(user_bin_idx);
+                partitions[p].push_back(user_bin_idx);
             }
 
             if (p_has_been_incremented && partition_cardinality[p] < cardinality_per_part)
@@ -645,14 +645,14 @@ void partition_user_bins(chopper::configuration const & config,
             if (cluster.empty()) // non valid clusters have been removed. Since list was sorted, we can abort
                 break;
 
-            bool const cluster_could_be_added = find_best_partition(config, cardinality_per_part, cluster, cardinalities, sketches, positions, partition_sketches, partition_cardinality);
+            bool const cluster_could_be_added = find_best_partition(config, cardinality_per_part, cluster, cardinalities, sketches, partitions, partition_sketches, partition_cardinality);
 
             // if the cluster is too large to be added. Add single user bins
             if (!cluster_could_be_added)
             {
                 for (size_t const user_bin_idx : cluster)
                 {
-                    bool const found = find_best_partition(config, cardinality_per_part, {user_bin_idx}, cardinalities, sketches, positions, partition_sketches, partition_cardinality);
+                    bool const found = find_best_partition(config, cardinality_per_part, {user_bin_idx}, cardinalities, sketches, partitions, partition_sketches, partition_cardinality);
                     assert(found); // there should always be at least one partition that has enough space left
                 }
             }
@@ -693,7 +693,7 @@ void partition_user_bins(chopper::configuration const & config,
 
                 partition_sketches[p].merge(sketches[user_bin_idx]);
                 partition_cardinality[p] += cardinalities[user_bin_idx];
-                positions[p].push_back(user_bin_idx);
+                partitions[p].push_back(user_bin_idx);
             }
 
             if (p_has_been_incremented && partition_cardinality[p] < cardinality_per_part)
@@ -730,26 +730,26 @@ void partition_user_bins(chopper::configuration const & config,
 
         for (size_t const user_bin_idx : remaining_ubs)
         {
-            bool const found = find_best_partition(config, cardinality_per_part, {user_bin_idx}, cardinalities, sketches, positions, partition_sketches, partition_cardinality);
+            bool const found = find_best_partition(config, cardinality_per_part, {user_bin_idx}, cardinalities, sketches, partitions, partition_sketches, partition_cardinality);
             assert(found); // there should always be at least one partition that has enough space left
         }
     }
 
     // sanity check:
     size_t sum{0};
-    for (auto const & p : positions)
+    for (auto const & p : partitions)
         sum += p.size();
 
     if (sum != sketches.size())
     {
         std::string str{"Not all user bins have been assigned to the "};
-        str += std::to_string(positions.size());
+        str += std::to_string(partitions.size());
         str += " partitions! (";
         str += std::to_string(sum);
         str += "/";
         str += std::to_string(sketches.size());
         str += ")\n";
-        for (auto const & p : positions)
+        for (auto const & p : partitions)
         {
             str += "[";
             for (auto const h : p)
