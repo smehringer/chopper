@@ -556,36 +556,14 @@ void partition_user_bins(chopper::configuration const & config,
                 continue;
             }
 
-            // search best partition fit by similarity
-            // similarity here is defined as:
-            // "whose (<-partition) effective text size is subsumed most by the current user bin"
-            // or in other words:
-            // "which partition has the largest intersection with user bin b compared to its own (partition) size."
-            double best_subsume_ratio{0.0};
-            size_t best_p{0};
-            for (size_t p = 0; p < config.number_of_partitions; ++p)
-            {
-                seqan::hibf::sketch::hyperloglog tmp = sketches[sorted_positions[i]];
-                tmp.merge(partition_sketches[p]);
-                size_t const tmp_estimate = tmp.estimate();
-                size_t const tmp_partition_estimate = partition_sketches[p].estimate();
-                assert(tmp_estimate >= tmp_partition_estimate);
-                size_t const change = tmp_estimate - tmp_partition_estimate;
-                size_t const intersection = cardinalities[sorted_positions[i]] - change;
-                double const subsume_ratio = static_cast<double>(intersection) / tmp_partition_estimate;
-
-                if (subsume_ratio > best_subsume_ratio && partition_cardinality[p] < cardinality_per_part)
-                {
-                    best_subsume_ratio = subsume_ratio;
-                    best_p = p;
-                }
-            }
-
-            // now that we know which partition fits best (`best_p`), add those indices to it
-
-            partitions[best_p].push_back(sorted_positions[i]);
-            partition_cardinality[best_p] += cardinalities[sorted_positions[i]];
-            partition_sketches[best_p].merge(sketches[sorted_positions[i]]);
+            find_best_partition(config,
+                                cardinality_per_part,
+                                {sorted_positions[i]},
+                                cardinalities,
+                                sketches,
+                                partitions,
+                                partition_sketches,
+                                partition_cardinality);
         }
     }
     else if (config.partitioning_approach == partitioning_scheme::lsh)
