@@ -260,15 +260,25 @@ bool find_best_partition(chopper::configuration const & config,
                          std::vector<seqan::hibf::sketch::hyperloglog> & partition_sketches,
                          std::vector<size_t> & partition_cardinality)
 {
-    seqan::hibf::sketch::hyperloglog current_sketch(config.hibf_config.sketch_bits);
-    size_t current_cardinality{0};
-
-    // initialise sketch of the current cluster
-    for (size_t const user_bin_idx : cluster)
+    seqan::hibf::sketch::hyperloglog const current_sketch = [&sketches, &cluster, &config]()
     {
-        current_sketch.merge(sketches[user_bin_idx]);
-        current_cardinality += cardinalities[user_bin_idx];
-    }
+        seqan::hibf::sketch::hyperloglog result{config.hibf_config.sketch_bits};
+
+        for (size_t const user_bin_idx : cluster)
+            result.merge(sketches[user_bin_idx]);
+
+        return result;
+    }();
+
+    size_t const current_cardinality = [&cardinalities, &cluster]()
+    {
+        size_t result{0};
+
+        for (size_t const user_bin_idx : cluster)
+            result += cardinalities[user_bin_idx];
+
+        return result;
+    }();
 
     // TODO: afterwads check if I should again merge by how little the effective text ratio grows
 
