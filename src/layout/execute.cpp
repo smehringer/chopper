@@ -706,7 +706,7 @@ void partition_user_bins(chopper::configuration const & config,
         std::sort(remaining_ubs.begin(), remaining_ubs.end(),
             [&cardinalities] (size_t const ub1, size_t const ub2) { return cardinalities[ub2] < cardinalities[ub1]; });
 
-        assert(cardinalities.size() < 2 || cardinalities[0] > cardinalities[1]);
+        assert(remaining_ubs.size() < 2 || cardinalities[remaining_ubs[0]] >= cardinalities[remaining_ubs[1]]);
 
         for (size_t const user_bin_idx : remaining_ubs)
         {
