@@ -58,10 +58,11 @@ std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vect
     assert(!minHash_sketches.empty());
     assert(!minHash_sketches[0].empty());
 
+    size_t const number_of_user_bins{cardinalities.size()};
     size_t const number_of_max_minHash_sketches{minHash_sketches[0].size()};
     // size_t const minHash_sketche_size{10};
 
-    size_t number_of_clusters = minHash_sketches.size();
+    size_t number_of_clusters{number_of_user_bins};
 
     // initialise clusters
     // cluster are either
@@ -75,13 +76,13 @@ std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vect
     // cluster[B] = {C}
     // cluster[C] = {C, A, B} // is valid cluster since cluster[C][0] == C; contains A and B
 
-    std::vector<std::vector<size_t>> clusters(minHash_sketches.size());
-    for (size_t user_bin_idx = 0; user_bin_idx < minHash_sketches.size(); ++user_bin_idx)
+    std::vector<std::vector<size_t>> clusters(number_of_clusters);
+    for (size_t user_bin_idx = 0; user_bin_idx < number_of_user_bins; ++user_bin_idx)
         clusters[user_bin_idx] = {user_bin_idx};
 
     // refine clusters
     size_t current_sketch_index{0};
-    while (number_of_clusters / static_cast<double>(minHash_sketches.size()) > 0.5 &&
+    while (number_of_clusters / static_cast<double>(number_of_user_bins) > 0.5 &&
            current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
     {
 std::cout << "Current number of clusters: " << number_of_clusters;
@@ -111,7 +112,7 @@ std::cout << "Current number of clusters: " << number_of_clusters;
                 table[key].push_back(representative_id); // insert representative for all user bins
             }
         }
-        assert(processed_user_bins == minHash_sketches.size()); // all user bins should've been processed by one of the clusters
+        assert(processed_user_bins == number_of_user_bins); // all user bins should've been processed by one of the clusters
 
         // read out table
         for (auto & [key, list] : table)
