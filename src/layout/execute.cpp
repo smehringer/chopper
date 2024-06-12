@@ -53,6 +53,7 @@ uint64_t lsh_hash_the_sketch(std::vector<uint64_t> const & sketch)
 
 std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches,
                          std::vector<size_t> const & cardinalities,
+                         size_t const average_technical_bin_size,
                          chopper::configuration const & config)
 {
     assert(!minHash_sketches.empty());
@@ -62,7 +63,9 @@ std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vect
     size_t const number_of_max_minHash_sketches{minHash_sketches[0].size()};
     // size_t const minHash_sketche_size{10};
 
-    size_t number_of_clusters{number_of_user_bins};
+    size_t number_of_clusters{number_of_user_bins}; // initially, each UB is a separate cluster
+
+    std::vector<size_t> cluster_cardinality(number_of_user_bins);
 
     // initialise clusters
     // cluster are either
@@ -77,12 +80,19 @@ std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vect
     // cluster[C] = {C, A, B} // is valid cluster since cluster[C][0] == C; contains A and B
 
     std::vector<std::vector<size_t>> clusters(number_of_clusters);
+    size_t current_max_cluster_size{0};
+
     for (size_t user_bin_idx = 0; user_bin_idx < number_of_user_bins; ++user_bin_idx)
+    {
         clusters[user_bin_idx] = {user_bin_idx};
+        cluster_cardinality[user_bin_idx] = cardinalities[user_bin_idx];
+        current_max_cluster_size = std::max(current_max_cluster_size, cardinalities[user_bin_idx]);
+    }
 
     // refine clusters
     size_t current_sketch_index{0};
-    while (number_of_clusters / static_cast<double>(number_of_user_bins) > 0.5 &&
+std::cout << "Start clustering with threshold average_technical_bin_size: " << average_technical_bin_size << std::endl;
+    while (current_max_cluster_size < average_technical_bin_size && /*number_of_clusters / static_cast<double>(number_of_user_bins) > 0.5 &&*/
            current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
     {
 std::cout << "Current number of clusters: " << number_of_clusters;
@@ -186,18 +196,22 @@ std::cout << "Current number of clusters: " << number_of_clusters;
 
                 // otherwise join
                 assert(representative.get()[0] == clusters[representative.get()[0]][0]); // valid cluster
+                assert(next.get()[0] == clusters[next.get()[0]][0]); // valid cluster
                 representative.get().insert(representative.get().end(), next.get().begin(), next.get().end());
+                cluster_cardinality[representative.get()[0]] += cluster_cardinality[next.get().front()];
                 assert(representative.get().size() >= 1);
                 assert(representative.get()[0] == clusters[representative.get()[0]][0]); // still valid cluster
                 next.get() = {representative.get()[0]}; // replace with identifier where cluster has been moved to
                 assert(next.get().size() == 1);
                 --number_of_clusters;
             }
+
+            current_max_cluster_size = *std::ranges::max_element(cluster_cardinality);
         }
 
         ++current_sketch_index;
 
-std::cout << " and after this clustering step there are: " << number_of_clusters << std::endl;
+std::cout << " and after this clustering step there are: " << number_of_clusters << "with max cluster size" << current_max_cluster_size << std::endl;
     }
 
     // clusters are done
@@ -578,7 +592,7 @@ void partition_user_bins(chopper::configuration const & config,
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
         // initial partitioning using locality sensitive hashing (LSH)
-        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, config);
+        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, cardinality_per_part, config);
 
         // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
         size_t cidx{0}; // current cluster index
@@ -651,7 +665,7 @@ void partition_user_bins(chopper::configuration const & config,
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
         // initial partitioning using locality sensitive hashing (LSH)
-        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, config);
+        std::vector<std::vector<size_t>> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, cardinality_per_part, config);
 
         // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
         size_t cidx{0}; // current cluster index
