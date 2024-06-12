@@ -40,17 +40,21 @@
 namespace chopper::layout
 {
 
-uint64_t lsh_hash_the_sketch(std::vector<uint64_t> const & sketch)
+uint64_t lsh_hash_the_sketch(std::vector<uint64_t> const & sketch, size_t const number_of_hashes_to_consider)
 {
     // lets just compute the sum
     uint64_t sum{0};
 
-    for (uint64_t const hash : sketch)
-        sum += hash;
+    for (size_t i = 0; i < number_of_hashes_to_consider; ++i)
+        sum += sketch[i];
 
     return sum;
 }
 
+// minHash_sketches data structure:
+// Vector L1 : number of user bins
+// Vector L2 : number_of_max_minHash_sketches (LSH ADD+OR parameter b)
+// Vector L3 : minHash_sketche_size (LSH ADD+OR parameter r)
 std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches,
                          std::vector<size_t> const & cardinalities,
                          size_t const average_technical_bin_size,
@@ -58,10 +62,12 @@ std::vector<std::vector<size_t>> initital_LSH_partitioning(std::vector<std::vect
 {
     assert(!minHash_sketches.empty());
     assert(!minHash_sketches[0].empty());
+    assert(!minHash_sketches[0][0].empty());
 
     size_t const number_of_user_bins{cardinalities.size()};
-    size_t const number_of_max_minHash_sketches{minHash_sketches[0].size()};
-    // size_t const minHash_sketche_size{10};
+    assert(number_of_user_bins == minHash_sketches.size());
+    size_t const number_of_max_minHash_sketches{minHash_sketches[0].size()}; // LSH ADD+OR parameter b
+    size_t const minHash_sketche_size{minHash_sketches[0][0].size()};        // LSH ADD+OR parameter r
 
     size_t number_of_clusters{number_of_user_bins}; // initially, each UB is a separate cluster
 
@@ -118,7 +124,7 @@ std::cout << "Current number of clusters: " << number_of_clusters;
             for (size_t const user_bin_idx : current)
             {
                 ++processed_user_bins;
-                uint64_t const key = lsh_hash_the_sketch(minHash_sketches[user_bin_idx][current_sketch_index]);
+                uint64_t const key = lsh_hash_the_sketch(minHash_sketches[user_bin_idx][current_sketch_index], minHash_sketche_size);
                 table[key].push_back(representative_id); // insert representative for all user bins
             }
         }
