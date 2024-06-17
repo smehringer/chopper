@@ -167,12 +167,6 @@ size_t LSH_find_representative_cluster(std::vector<Cluster> const & clusters, si
 
     assert(representative.get().is_valid(current_id));
 
-    // It can happen, that the representative has already been joined with another cluster
-    // e.g.
-    // [key1] = {0,11}  // then clusters[11] is merged into clusters[0]
-    // [key2] = {11,13} // now I want to merge clusters[13] into clusters[11] but the latter has been moved
-    // when cluster[11] has been moved. The entry in cluster[11] is the id of the cluster it has been merged to
-    // so we can recursively find a valid cluster
     while (representative.get().has_been_moved())
     {
         current_id = representative.get().moved_to_cluster_id();
@@ -201,12 +195,8 @@ std::vector<Cluster> initital_LSH_partitioning(std::vector<std::vector<std::vect
     size_t const number_of_max_minHash_sketches{minHash_sketches[0].size()}; // LSH ADD+OR parameter b
     size_t const minHash_sketche_size{minHash_sketches[0][0].size()};        // LSH ADD+OR parameter r
 
-    size_t number_of_clusters{number_of_user_bins}; // initially, each UB is a separate cluster
-
-    std::vector<size_t> cluster_cardinality(number_of_user_bins);
-
-    // initialise clusters
-    // cluster are either
+    // initialise clusters with a signle user bin per cluster.
+    // clusters are either
     // 1) of size 1; containing an id != position where the id points to the cluster it has been moved to
     //    e.g. cluster[Y] = {Z} (Y has been moved into Z, so Z could look likes this cluster[Z] = {Z, Y})
     // 2) of size >= 1; with the first entry beging id == position (a valid cluster)
@@ -216,34 +206,36 @@ std::vector<Cluster> initital_LSH_partitioning(std::vector<std::vector<std::vect
     // cluster[A] = {B}
     // cluster[B] = {C}
     // cluster[C] = {C, A, B} // is valid cluster since cluster[C][0] == C; contains A and B
-
     std::vector<Cluster> clusters;
-    clusters.reserve(number_of_clusters);
+    clusters.reserve(number_of_user_bins);
 
+    std::vector<size_t> current_cluster_cardinality(number_of_user_bins);
     size_t current_max_cluster_size{0};
     size_t current_number_of_sketch_hashes{minHash_sketche_size}; // start with high r but decrease it iteratively
-
+    size_t current_sketch_index{0};
+    size_t current_number_of_clusters{number_of_user_bins}; // initially, each UB is a separate cluster
 
     for (size_t user_bin_idx = 0; user_bin_idx < number_of_user_bins; ++user_bin_idx)
     {
         clusters.emplace_back(user_bin_idx);
-        cluster_cardinality[user_bin_idx] = cardinalities[user_bin_idx];
+        current_cluster_cardinality[user_bin_idx] = cardinalities[user_bin_idx];
         current_max_cluster_size = std::max(current_max_cluster_size, cardinalities[user_bin_idx]);
     }
 
     // refine clusters
-    size_t current_sketch_index{0};
 std::cout << "Start clustering with threshold average_technical_bin_size: " << average_technical_bin_size << std::endl;
     while (current_max_cluster_size < average_technical_bin_size && /*number_of_clusters / static_cast<double>(number_of_user_bins) > 0.5 &&*/
            current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
     {
-std::cout << "Current number of clusters: " << number_of_clusters;
+std::cout << "Current number of clusters: " << current_number_of_clusters;
 
-        // fill table
+        // fill LSH collision hashtable
         robin_hood::unordered_flat_map<uint64_t, std::vector<size_t>> table =
             LSH_fill_hashtable(clusters, minHash_sketches, current_sketch_index, current_number_of_sketch_hashes);
 
-        // read out table
+        // read out LSH collision hashtable
+        // for each present key, if the list contains more than one cluster, we merge everything contained in the list
+        // into the first cluster, since those clusters collide and should be joined in the same bucket
         for (auto & [key, list] : table)
         {
             assert(!list.empty());
@@ -257,73 +249,54 @@ std::cout << "Current number of clusters: " << number_of_clusters;
             if (end - begin <= 1) // nothing to do here
                 continue;
 
-            size_t current_id = *begin;
-
             // Now combine all clusters into the first.
 
-            // 1) find the representative cluster
+            // 1) find the representative cluster to merge everything else into
+            // It can happen, that the representative has already been joined with another cluster
+            // e.g.
+            // [key1] = {0,11}  // then clusters[11] is merged into clusters[0]
+            // [key2] = {11,13} // now I want to merge clusters[13] into clusters[11] but the latter has been moved
             size_t const representative_cluster_id = LSH_find_representative_cluster(clusters, *begin);
             auto & representative_cluster = clusters[representative_cluster_id];
-
-            // Now I can be sure that I found the correct representative cluster to merge into
             assert(representative_cluster.is_valid(representative_cluster_id));
             assert(representative_cluster.id() == clusters[representative_cluster.id()].id());
-            // Since I requested a user bin id represented by '*begin', at least '*begin' has to be inside the cluster:
-            // assert((representative_cluster.size() == 1) || (std::find(representative_cluster.begin(), representative_cluster.end(), *begin) != representative_cluster.end()));
 
             for (auto current = begin + 1; current < end; ++current)
             {
-                assert((*begin) != (*current));
                 // For every other entry in the list, it can happen that I already joined that list with another
                 // e.g.
                 // [key1] = {0,11}  // then clusters[11] is merged into clusters[0]
                 // [key2] = {0, 2, 11} // now I want to do it again
-                // I can identify whether it is a moved cluster or not by checking the first entry.
-                // e.g. clusters[X] = {X, a, b, c, ...} // valid cluster because clusters[X][0] == X
-                // e.g. clusters[Y] = {Z} // moved cluster, because clusters[Y][0] != Y
-                current_id = *current;
-                std::reference_wrapper<Cluster> next = clusters[current_id];
-                assert(next.get().is_valid(current_id));
+                size_t const next_cluster_id = LSH_find_representative_cluster(clusters, *current);
+                auto & next_cluster = clusters[next_cluster_id];
 
-                while (next.get().has_been_moved())
-                {
-                    current_id = next.get().moved_to_cluster_id();
-                    next = clusters[current_id];
-                    assert(next.get().is_valid(current_id));
-                }
-
-                // Since I requested a user bin id represented by '*current', at least '*current' has to be inside the cluster:
-                // assert((next.get().size() == 1) || (std::find(next.get().begin(), next.get().end(), *current) != next.get().end()));
-
-                if (next.get().id() == representative_cluster.id()) // already joined
+                if (next_cluster.id() == representative_cluster.id()) // already joined
                     continue;
 
-                // otherwise join
-                // representative_cluster.insert(representative_cluster.end(), next.get().begin(), next.get().end());
-                // next.get() = {representative_cluster.id()}; // replace with identifier where cluster has been moved to
-                next.get().move_to(representative_cluster);
-                assert(next.get().size() == 0);
+                next_cluster.move_to(representative_cluster); // otherwise join next_cluster into representative_cluster
+                assert(next_cluster.size() == 0);
+                assert(next_cluster.has_been_moved());
+                assert(representative_cluster.size() > 1); // there should be at least two user bins now
+                assert(representative_cluster.is_valid(representative_cluster_id)); // and it should still be valid
 
-                cluster_cardinality[representative_cluster.id()] += cluster_cardinality[next.get().id()];
-                // assert(std::accumulate(representative_cluster.contained_user_bins().begin(),
-                //                        representative_cluster.contained_user_bins().end(),
-                //                        0u) == cluster_cardinality[representative_cluster.id()]);
+                current_cluster_cardinality[representative_cluster.id()] += current_cluster_cardinality[next_cluster.id()];
 
-                assert(representative_cluster.size() > 1);
-                assert(representative_cluster.is_valid(representative_cluster_id));
-
-                --number_of_clusters;
+                --current_number_of_clusters;
             }
 
-            current_max_cluster_size = *std::ranges::max_element(cluster_cardinality);
+            current_max_cluster_size = *std::ranges::max_element(current_cluster_cardinality);
         }
 
         ++current_sketch_index;
 
-std::cout << " and after this clustering step there are: " << number_of_clusters << "with max cluster size" << current_max_cluster_size << std::endl;
+std::cout << " and after this clustering step there are: " << current_number_of_clusters << "with max cluster size" << current_max_cluster_size << std::endl;
     }
 
-    // clusters are done
+    // clusters are done. Start post processing
+    // since post processing involves re-ordering the clusters, the moved_to_cluster_id value of a cluster will not
+    // refer to the position of the cluster in the `clusters` vecto anymore but the cluster with the resprive id()
+    // would neet to be found
+
     for (size_t pos = 0; pos < clusters.size(); ++pos)
     {
         assert(clusters[pos].is_valid(pos));
@@ -367,7 +340,6 @@ std::cout << " and after this clustering step there are: " << number_of_clusters
 
     return clusters;
 }
-
 
 bool find_best_partition(chopper::configuration const & config,
                          size_t const cardinality_per_part,
