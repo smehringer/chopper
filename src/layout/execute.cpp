@@ -292,6 +292,13 @@ std::cout << "Current number of clusters: " << current_number_of_clusters;
 std::cout << " and after this clustering step there are: " << current_number_of_clusters << "with max cluster size" << current_max_cluster_size << std::endl;
     }
 
+    return clusters;
+}
+
+void post_process_clusters(std::vector<Cluster> & clusters,
+                           std::vector<size_t> const & cardinalities,
+                           chopper::configuration const & config)
+{
     // clusters are done. Start post processing
     // since post processing involves re-ordering the clusters, the moved_to_cluster_id value of a cluster will not
     // refer to the position of the cluster in the `clusters` vecto anymore but the cluster with the resprive id()
@@ -337,7 +344,15 @@ std::cout << " and after this clustering step there are: " << current_number_of_
             throw std::runtime_error{"sorting did not work"};
     }
 // debug
+}
 
+std::vector<Cluster> LSH_partitioning(std::vector<std::vector<std::vector<uint64_t>>> const & minHash_sketches,
+                                      std::vector<size_t> const & cardinalities,
+                                      size_t const average_technical_bin_size,
+                                      chopper::configuration const & config)
+{
+    std::vector<Cluster> clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, average_technical_bin_size, config);
+    post_process_clusters(clusters, cardinalities, config);
     return clusters;
 }
 
@@ -667,9 +682,9 @@ void partition_user_bins(chopper::configuration const & config,
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
         // initial partitioning using locality sensitive hashing (LSH)
-        std::vector<Cluster> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, cardinality_per_part, config);
+        std::vector<Cluster> const clusters = LSH_partitioning(minHash_sketches, cardinalities, cardinality_per_part, config);
 
-        // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
+        // initialise partitions with the first p largest clusters (post_processing sorts by size)
         size_t cidx{0}; // current cluster index
         for (size_t p = 0; p < config.number_of_partitions; ++p)
         {
@@ -740,9 +755,9 @@ void partition_user_bins(chopper::configuration const & config,
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
         // initial partitioning using locality sensitive hashing (LSH)
-        std::vector<Cluster> const clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, cardinality_per_part, config);
+        std::vector<Cluster> const clusters = LSH_partitioning(minHash_sketches, cardinalities, cardinality_per_part, config);
 
-        // initialise partitions with the first p largest clusters (initital_LSH_partitioning sorts by size)
+        // initialise partitions with the first p largest clusters (post processing sorts by size)
         size_t cidx{0}; // current cluster index
         for (size_t p = 0; p < config.number_of_partitions; ++p)
         {
