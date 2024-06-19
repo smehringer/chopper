@@ -112,28 +112,6 @@ auto LSH_fill_hashtable(std::vector<MultiCluster> const & clusters,
     return table;
 }
 
-// A valid cluster is one that hasn't been moved but actually contains user bins
-// A valid cluster at position i is identified by the following equality: cluster[i].size() >= 1 && cluster[i][0] == i
-// A moved cluster is one that has been joined and thereby moved to another cluster
-// A moved cluster i is identified by the following: cluster[i].size() == 1 && cluster[i][0] != i
-// returns position of the representative cluster
-template <typename cluster_type>
-size_t LSH_find_representative_cluster(std::vector<cluster_type> const & clusters, size_t current_id)
-{
-    std::reference_wrapper<cluster_type const> representative = clusters[current_id];
-
-    assert(representative.get().is_valid(current_id));
-
-    while (representative.get().has_been_moved())
-    {
-        current_id = representative.get().moved_to_cluster_id();
-        representative = clusters[current_id]; // replace by next cluster
-        assert(representative.get().is_valid(current_id));
-    }
-
-    return current_id;
-}
-
 // minHash_sketches data structure:
 // Vector L1 : number of user bins
 // Vector L2 : number_of_max_minHash_sketches (LSH ADD+OR parameter b)

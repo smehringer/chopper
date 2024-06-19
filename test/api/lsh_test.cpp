@@ -121,3 +121,40 @@ TEST(Multicluster_test, move_to)
     ASSERT_EQ(multi_cluster3.contained_user_bins()[1][0], cluster1.id());
     ASSERT_EQ(multi_cluster3.contained_user_bins()[1][1], cluster2.id());
 }
+
+TEST(LSH_find_representative_cluster_test, cluster_one_move)
+{
+    std::vector<chopper::Cluster> clusters{chopper::Cluster{0}, chopper::Cluster{1}};
+    clusters[1].move_to(clusters[0]);
+
+    EXPECT_EQ(chopper::LSH_find_representative_cluster(clusters, clusters[1].id()), clusters[0].id());
+}
+
+TEST(LSH_find_representative_cluster_test, multi_cluster_one_move)
+{
+    std::vector<chopper::MultiCluster> mclusters{{chopper::Cluster{0}}, {chopper::Cluster{1}}};
+    mclusters[1].move_to(mclusters[0]);
+
+    EXPECT_EQ(chopper::LSH_find_representative_cluster(mclusters, mclusters[1].id()), mclusters[0].id());
+
+}
+
+TEST(LSH_find_representative_cluster_test, cluster_two_moves)
+{
+    std::vector<chopper::Cluster> clusters{chopper::Cluster{0}, chopper::Cluster{1}, chopper::Cluster{2}};
+    clusters[2].move_to(clusters[1]);
+    clusters[1].move_to(clusters[0]);
+
+    EXPECT_EQ(chopper::LSH_find_representative_cluster(clusters, clusters[1].id()), clusters[0].id());
+    EXPECT_EQ(chopper::LSH_find_representative_cluster(clusters, clusters[2].id()), clusters[0].id());
+}
+
+TEST(LSH_find_representative_cluster_test, multi_cluster_two_moves)
+{
+    std::vector<chopper::MultiCluster> mclusters{{chopper::Cluster{0}}, {chopper::Cluster{1}}, {chopper::Cluster{2}}};
+    mclusters[2].move_to(mclusters[1]);
+    mclusters[1].move_to(mclusters[0]);
+
+    EXPECT_EQ(chopper::LSH_find_representative_cluster(mclusters, mclusters[1].id()), mclusters[0].id());
+    EXPECT_EQ(chopper::LSH_find_representative_cluster(mclusters, mclusters[2].id()), mclusters[0].id());
+}
