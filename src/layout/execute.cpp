@@ -354,10 +354,10 @@ std::vector<MultiCluster> most_distant_LSH_partitioning(std::vector<Cluster> con
 
     size_t const number_of_user_bins{initial_clusters.size()};
     assert(number_of_user_bins == minHash_sketches.size());
-    size_t const number_of_max_minHash_sketches{minHash_sketches[0].size() - 3}; // LSH ADD+OR parameter b
+    size_t const number_of_max_minHash_sketches{minHash_sketches[0].size()}; // LSH ADD+OR parameter b
     // size_t const minHash_sketche_size{minHash_sketches[0][0].size()};   // LSH ADD+OR parameter r
 
-    size_t current_number_of_sketch_hashes{3};
+    size_t current_number_of_sketch_hashes{5};
     size_t current_sketch_index{0};
 
     size_t current_number_of_clusters = [&initial_clusters] ()
@@ -384,7 +384,7 @@ std::vector<MultiCluster> most_distant_LSH_partitioning(std::vector<Cluster> con
     while (current_number_of_clusters > (config.hibf_config.tmax * 2) &&
            current_sketch_index < number_of_max_minHash_sketches)
     {
-std::cout << "Current number of clusters: " << current_number_of_clusters;
+std::cout << "[Dist] Current number of clusters: " << current_number_of_clusters << " sketch size:" << current_number_of_sketch_hashes << " ";
 
         // fill LSH collision hashtable
         robin_hood::unordered_flat_map<uint64_t, std::vector<size_t>> table =
@@ -441,6 +441,9 @@ std::cout << "Current number of clusters: " << current_number_of_clusters;
         }
 
         ++current_sketch_index;
+
+        if (current_sketch_index % 4 == 0 && current_number_of_sketch_hashes > 1)
+            --current_number_of_sketch_hashes;
 
 std::cout << " and after this clustering step there are: " << current_number_of_clusters << std::endl;
     }
