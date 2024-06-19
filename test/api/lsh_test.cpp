@@ -81,3 +81,40 @@ TEST(Multicluster_test, ctor_from_moved_cluster)
     ASSERT_EQ(multi_cluster2.contained_user_bins().size(), 0u);
     EXPECT_TRUE(multi_cluster2.is_valid(cluster2.id()));
 }
+
+TEST(Multicluster_test, move_to)
+{
+    chopper::Cluster cluster1{5};
+    chopper::Cluster cluster2{7};
+    cluster2.move_to(cluster1);
+    chopper::Cluster const cluster3{13};
+
+    chopper::MultiCluster multi_cluster1{cluster1};
+    chopper::MultiCluster multi_cluster3{cluster3};
+
+    EXPECT_TRUE(multi_cluster1.is_valid(cluster1.id()));
+    EXPECT_TRUE(multi_cluster3.is_valid(cluster3.id()));
+    EXPECT_EQ(multi_cluster1.size(), 2u);
+    EXPECT_EQ(multi_cluster3.size(), 1u);
+
+    multi_cluster1.move_to(multi_cluster3);
+
+    EXPECT_TRUE(multi_cluster1.is_valid(cluster1.id()));
+    EXPECT_TRUE(multi_cluster3.is_valid(cluster3.id()));
+
+    // multi_cluster1 has been moved and is empty now
+    EXPECT_TRUE(multi_cluster1.empty());
+    EXPECT_EQ(multi_cluster1.size(), 0u);
+    EXPECT_TRUE(multi_cluster1.has_been_moved());
+    EXPECT_EQ(multi_cluster1.moved_to_cluster_id(), multi_cluster3.id());
+
+    // multi_cluster3 contains 2 clusters now, {13} and {5, 7}
+    EXPECT_FALSE(multi_cluster3.empty());
+    EXPECT_EQ(multi_cluster3.size(), 3u);
+    ASSERT_EQ(multi_cluster3.contained_user_bins().size(), 2u);
+    ASSERT_EQ(multi_cluster3.contained_user_bins()[0].size(), 1u);
+    ASSERT_EQ(multi_cluster3.contained_user_bins()[1].size(), 2u);
+    ASSERT_EQ(multi_cluster3.contained_user_bins()[0][0], cluster3.id());
+    ASSERT_EQ(multi_cluster3.contained_user_bins()[1][0], cluster1.id());
+    ASSERT_EQ(multi_cluster3.contained_user_bins()[1][1], cluster2.id());
+}
