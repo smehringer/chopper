@@ -67,13 +67,11 @@ TEST(Multicluster_test, ctor_from_cluster)
 
 TEST(Multicluster_test, ctor_from_moved_cluster)
 {
-    chopper::Cluster const cluster1{5};
-    chopper::MultiCluster const multi_cluster1{cluster1};
-
+    chopper::Cluster cluster1{5};
     chopper::Cluster cluster2{7};
     cluster2.move_to(cluster1);
 
-    chopper::MultiCluster multi_cluster2{cluster2};
+    chopper::MultiCluster const multi_cluster2{cluster2};
 
     EXPECT_EQ(multi_cluster2.id(), cluster2.id());
     EXPECT_TRUE(multi_cluster2.empty());
