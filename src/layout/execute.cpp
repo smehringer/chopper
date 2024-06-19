@@ -120,7 +120,7 @@ auto LSH_fill_hashtable(std::vector<MultiCluster> const & clusters,
 template <typename cluster_type>
 size_t LSH_find_representative_cluster(std::vector<cluster_type> const & clusters, size_t current_id)
 {
-    std::reference_wrapper<Cluster const> representative = clusters[current_id];
+    std::reference_wrapper<cluster_type const> representative = clusters[current_id];
 
     assert(representative.get().is_valid(current_id));
 
