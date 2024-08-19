@@ -995,8 +995,10 @@ void partition_user_bins(chopper::configuration const & config,
         std::vector<size_t> min_partition_cardinality(config.number_of_partitions, std::numeric_limits<size_t>::max());
 
         // initial partitioning using locality sensitive hashing (LSH)
+        config.lsh_algorithm_timer.start();
         std::vector<Cluster> clusters = very_similar_LSH_partitioning(minHash_sketches, positions, cardinalities, sketches, original_estimate_per_part, config);
         post_process_clusters(clusters, cardinalities, config);
+        config.lsh_algorithm_timer.stop();
 
 std::ofstream ofs{"/tmp/final.clusters"};
 for (size_t i = 0; i < clusters.size(); ++i)
@@ -1092,7 +1094,9 @@ for (size_t i = 0; i < clusters.size(); ++i)
 
             for (size_t uidx = 0; uidx < cluster.size(); ++uidx)
             {
+                config.search_partition_algorithm_timer.start();
                 find_best_partition(config, corrected_estimate_per_part, {cluster[uidx]}, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
+                config.search_partition_algorithm_timer.start();
             }
         }
     }
