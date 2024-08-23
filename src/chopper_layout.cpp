@@ -130,10 +130,7 @@ int chopper_layout(chopper::configuration & config, sharg::parser & parser)
     if (!input_is_a_sketch_file)
     {
         config.compute_sketches_timer.start();
-        if (config.number_of_partitions < 2)
-            seqan::hibf::sketch::compute_sketches(config.hibf_config, sketches);
-        else
-            seqan::hibf::sketch::compute_sketches(config.hibf_config, sketches, minHash_sketches);
+        seqan::hibf::sketch::compute_sketches(config.hibf_config, sketches, minHash_sketches);
         config.compute_sketches_timer.stop();
     }
 
