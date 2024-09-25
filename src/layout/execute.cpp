@@ -630,7 +630,7 @@ bool find_best_partition(chopper::configuration const & config,
     size_t best_p{0};
     bool best_p_found{false};
 
-    auto penalty = [&] (size_t const additional_number_of_user_bins, size_t const p)
+    auto penalty_lower_level = [&] (size_t const additional_number_of_user_bins, size_t const p)
     {
         if (additional_number_of_user_bins != 1)
             throw "currently only for adding a single user bin";
@@ -679,10 +679,11 @@ bool find_best_partition(chopper::configuration const & config,
         union_sketch.merge(partition_sketches[p]);
         size_t const union_estimate = union_sketch.estimate();
         size_t const current_partition_size = partition_sketches[p].estimate();
+
         assert(union_estimate >= current_partition_size);
-        size_t const change = (union_estimate - current_partition_size) +
-                              config.hibf_config.tmax * ((union_estimate <= corrected_estimate_per_part) ? 0u : union_estimate - corrected_estimate_per_part) +
-                              penalty(cluster.size(), p);
+        size_t const penalty_current_bin = union_estimate - current_partition_size;
+        size_t const penalty_current_ibf = config.hibf_config.tmax * ((union_estimate <= corrected_estimate_per_part) ? 0u : union_estimate - corrected_estimate_per_part);
+        size_t const change = penalty_current_bin + penalty_current_ibf + penalty_lower_level(cluster.size(), p);
 
         // size_t const intersection = current_sketch.estimate() - change;
         // double const subsume_ratio = static_cast<double>(intersection) / current_partition_size;
