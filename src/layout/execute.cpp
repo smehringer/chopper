@@ -640,17 +640,34 @@ bool find_best_partition(chopper::configuration const & config,
 
         if (positions[p].size() == config.hibf_config.tmax)
         {
+            // if the current merged bin contains exactly tmax UBS, adding otherone must
+            // result in another lower level. Most likely, the smallest user bin will end up on the lower level
+            // therefore the penalty is set to 'min * tmax'
+            // of course, there could also be a third level with a lower number of user bins, but this is hard to
+            // estimate.
             size_t const penalty = min * config.hibf_config.tmax;
             return penalty;
         }
         else if (positions[p].size() > config.hibf_config.tmax) // already a third level
         {
-            return max * (positions[p].size() + additional_number_of_user_bins) / (config.hibf_config.tmax * config.hibf_config.tmax);
+            // if there must already be another lower level because the current merged bin contains more than tmax
+            // user bins, then the current user bin is very likely stored multiple times. Therefore, the penalty is set
+            // to the cardinality of the current user bin times the number of levels, e.g. the number of times this user
+            // bin needs to be stored additionally
+            size_t const num_ubs_in_merged_bin{positions[p].size() + additional_number_of_user_bins};
+            double const levels = std::log(num_ubs_in_merged_bin) / std::log(config.hibf_config.tmax);
+            return  static_cast<size_t>(max_card * levels);
         }
         else // positions[p].size() + additional_number_of_user_bins < tmax
         {
-            if (max_card < min_partition_cardinality[p] || max_card > max_partition_cardinality[p])
-                return max * config.hibf_config.tmax / min;
+            // if the new user bin is smaller than all other already contained user bins
+            // the waste of space is high if stored in a single technical bin
+            if (max_card < min)
+                return (max - max_card);
+            // if the new user bin is bigger than all other already contained user bins, the IBF size increases
+            else if (max_card > max)
+                return (max_card - max) * config.hibf_config.tmax;
+            // else, end if-else-block and zero is returned
         }
 
         return (size_t)0u;
