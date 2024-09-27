@@ -689,8 +689,8 @@ bool find_best_partition(chopper::configuration const & config,
         // double const subsume_ratio = static_cast<double>(intersection) / current_partition_size;
 //std::cout << "p:" << p << " p-#UBs" << positions[p].size() << " penalty:" <<  penalty(cluster.size(), p) << " change:" << change << " union-current_p:" << (union_estimate - current_partition_size) << " union:" << union_estimate << " current_p:" << current_partition_size << " t:" << corrected_estimate_per_part << std::endl;
         if (change == 0 || /* If there is no penalty at all, this is a best fit even if the partition is "full"*/
-            (smallest_change > change && /*subsume_ratio > best_subsume_ratio &&*/
-            current_partition_size < corrected_estimate_per_part))
+            (smallest_change > change /*&& /*subsume_ratio > best_subsume_ratio &&*/
+            /*current_partition_size < corrected_estimate_per_part*/))
         {
 //std::cout << "smaller!" << std::endl;
             // best_subsume_ratio = subsume_ratio;
