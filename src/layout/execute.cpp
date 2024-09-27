@@ -951,6 +951,9 @@ void partition_user_bins(chopper::configuration const & config,
                      chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
         size_t const number_of_blocks = seqan::hibf::divide_and_ceil(positions.size(), block_size);
 
+        std::vector<size_t> max_partition_cardinality(config.number_of_partitions, 0u);
+        std::vector<size_t> min_partition_cardinality(config.number_of_partitions, std::numeric_limits<size_t>::max());
+
         // don't move from largest to smallest but pick the next block to process randomly.
         // this probably leads to more evenly distributed partitions (evenly in terms of number of user bins)
         std::vector<size_t> indices(number_of_blocks);
@@ -968,8 +971,11 @@ void partition_user_bins(chopper::configuration const & config,
             for (size_t x = 0; x < end; ++x)
             {
                 assert(block_size * i + x < sorted_positions.size());
-                partition_sketches[p].merge(sketches[sorted_positions[block_size * i + x]]);
-                partitions[p].push_back(sorted_positions[block_size * i + x]);
+                size_t const user_bin_idx{sorted_positions[block_size * i + x]};
+                partition_sketches[p].merge(sketches[user_bin_idx]);
+                partitions[p].push_back(user_bin_idx);
+                max_partition_cardinality[p] = std::max(max_partition_cardinality[p], cardinalities[user_bin_idx]);
+                min_partition_cardinality[p] = std::min(min_partition_cardinality[p], cardinalities[user_bin_idx]);
             }
         }
 
@@ -990,14 +996,15 @@ void partition_user_bins(chopper::configuration const & config,
                 continue;
             }
 
-            // TODO
-            // find_best_partition(config,
-            //                     corrected_estimate_per_part,
-            //                     {sorted_positions[i]},
-            //                     cardinalities,
-            //                     sketches,
-            //                     partitions,
-            //                     partition_sketches);
+            find_best_partition(config,
+                                corrected_estimate_per_part,
+                                {sorted_positions[i]},
+                                cardinalities,
+                                sketches,
+                                partitions,
+                                partition_sketches,
+                                max_partition_cardinality,
+                                min_partition_cardinality);
         }
     }
     else if (config.partitioning_approach == partitioning_scheme::lsh)
