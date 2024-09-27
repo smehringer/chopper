@@ -943,7 +943,7 @@ void partition_user_bins(chopper::configuration const & config,
         std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
 
-        size_t const corrected_estimate_per_part = estimate_per_part * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
+        size_t corrected_estimate_per_part = estimate_per_part;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
 
         size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(positions.size(), config.number_of_partitions);
         size_t const block_size =
@@ -1006,7 +1006,7 @@ void partition_user_bins(chopper::configuration const & config,
 //std::cout << "LSH partitioning into " << config.number_of_partitions << std::endl;
         std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
-        size_t corrected_estimate_per_part = estimate_per_part * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
+        size_t corrected_estimate_per_part = estimate_per_part;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
         size_t original_estimate_per_part = estimate_per_part;
 
         std::vector<size_t> max_partition_cardinality(config.number_of_partitions, 0u);
