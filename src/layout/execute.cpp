@@ -1128,23 +1128,38 @@ for (size_t i = 0; i < clusters.size(); ++i)
     else if (config.partitioning_approach == partitioning_scheme::lsh_sim)
     {
         uint8_t const sketch_bits{config.hibf_config.sketch_bits};
+//std::cout << "LSH partitioning into " << config.number_of_partitions << std::endl;
         std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
+        size_t corrected_estimate_per_part = estimate_per_part * 1.5;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
+        size_t original_estimate_per_part = estimate_per_part;
+
         std::vector<size_t> max_partition_cardinality(config.number_of_partitions, 0u);
         std::vector<size_t> min_partition_cardinality(config.number_of_partitions, std::numeric_limits<size_t>::max());
 
-        size_t corrected_estimate_per_part = estimate_per_part;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
-
         // initial partitioning using locality sensitive hashing (LSH)
-        std::vector<MultiCluster> const clusters = sim_dist_LSH_partitioning(minHash_sketches, positions, cardinalities, sketches, corrected_estimate_per_part, config);
+        config.lsh_algorithm_timer.start();
+        std::vector<Cluster> clusters = very_similar_LSH_partitioning(minHash_sketches, positions, cardinalities, sketches, original_estimate_per_part, config);
+        post_process_clusters(clusters, cardinalities, config);
+        config.lsh_algorithm_timer.stop();
 
-        // initialise partitions with the first p largest clusters (post processing sorts by size)
+std::ofstream ofs{"/tmp/final.clusters"};
+for (size_t i = 0; i < clusters.size(); ++i)
+{
+    seqan::hibf::sketch::hyperloglog sketch(config.hibf_config.sketch_bits);
+    for (size_t j = 0; j < clusters[i].size(); ++j)
+    {
+        sketch.merge(sketches[clusters[i].contained_user_bins()[j]]);
+    }
+    ofs << i << ":" << sketch.estimate() << ":" << clusters[i].size() << std::endl;
+}
+
+        // initialise partitions with the first p largest clusters (post_processing sorts by size)
         size_t cidx{0}; // current cluster index
         for (size_t p = 0; p < config.number_of_partitions; ++p)
         {
             assert(!clusters[cidx].empty());
-            bool p_has_been_incremented{false};
-            auto const & cluster = clusters[cidx].contained_user_bins()[0];
+            auto const & cluster = clusters[cidx].contained_user_bins();
             bool split_cluster = false;
 
             if (cluster.size() > config.hibf_config.tmax)
@@ -1176,97 +1191,57 @@ for (size_t i = 0; i < clusters.size(); ++i)
                 min_partition_cardinality[p] = std::min(min_partition_cardinality[p], cardinalities[user_bin_idx]);
             }
 
-            // if (p_has_been_incremented && partition_sketches[p].estimate() < corrected_estimate_per_part)
-            // {
-            //     // p will be incremeted again in the next iteration of this for loop
-            //     // since we have incremented p previously because of some user bins that spilled over in this currnet p
-            //     // we want to decrease p here, s.t. we stay at the same p.
-            //     // this ensures that the current p doesn't only have a small rest that just didn't fit into the
-            //     //  previous partition
-            //     assert(p > 0);
-            //     --p;
-            // }
-
             ++cidx;
         }
-
-        // assign the rest, cluster by cluster (because the clusters are very similar), by similarity
-        assert(config.hibf_config.number_of_user_bins == clusters.size());
 
         std::vector<std::vector<size_t>> remaining_clusters{};
 
         for (size_t i = 0; i < clusters.size(); ++i)
         {
-            auto const & mcluster = clusters[i].contained_user_bins();
-
-            if (mcluster.empty())
+            if (clusters[i].empty())
                 break;
 
+            auto const & cluster = clusters[i].contained_user_bins();
 
             // if i < cidx the first cluster was already used in initialising above
-            if (auto const & first_cluster = mcluster[0]; i < cidx)
+            if (i < cidx)
             {
                 bool split_cluster = false;
-                if (first_cluster.size() > config.hibf_config.tmax)
+                if (cluster.size() > config.hibf_config.tmax)
                 {
                     size_t card{0};
-                    for (size_t uidx = 0; uidx < first_cluster.size(); ++uidx)
-                        card += cardinalities[first_cluster[uidx]];
+                    for (size_t uidx = 0; uidx < cluster.size(); ++uidx)
+                        card += cardinalities[cluster[uidx]];
 
                     if (card > 0.05 * sum_of_cardinalities / config.hibf_config.tmax)
                         split_cluster = true;
                 }
 
-                if (first_cluster.size() > config.hibf_config.tmax && !split_cluster) // then only the first tmax UBs have been consumed
+                if (cluster.size() > config.hibf_config.tmax && !split_cluster) // then only the first tmax UBs have been consumed
                 {
-                    std::vector<size_t> remainder(first_cluster.begin() + config.hibf_config.tmax, first_cluster.end());
+                    std::vector<size_t> remainder(cluster.begin() + config.hibf_config.tmax, cluster.end());
                     remaining_clusters.insert(remaining_clusters.end(), remainder);
                 }
                 // otherwise ignore cluster
             }
             else
             {
-                remaining_clusters.insert(remaining_clusters.end(), first_cluster);
+                remaining_clusters.insert(remaining_clusters.end(), cluster);
             }
-
-            remaining_clusters.insert(remaining_clusters.end(), mcluster.begin() + 1, mcluster.end());
         }
-        auto cmp = [&cardinalities] (auto const & c1, auto const & c2) { return cardinalities[c2[0]] < cardinalities[c1[0]]; };
-        std::sort(remaining_clusters.begin(), remaining_clusters.end(), cmp);
 
-//std::cout << "lsh sim dist with tb corrected_estimate_per_part: " << corrected_estimate_per_part << std::endl;
+        // assign the rest by similarity
         for (size_t ridx = 0; ridx < remaining_clusters.size(); ++ridx)
         {
             auto const & cluster = remaining_clusters[ridx];
 
             for (size_t uidx = 0; uidx < cluster.size(); ++uidx)
             {
+                config.search_partition_algorithm_timer.start();
                 find_best_partition(config, corrected_estimate_per_part, {cluster[uidx]}, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
+                config.search_partition_algorithm_timer.start();
             }
-//             bool const cluster_could_be_added = find_best_partition(config, corrected_estimate_per_part, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality);
-
-//             // if the cluster is too large to be added. Add single user bins
-//             if (!cluster_could_be_added)
-//             {
-//                 auto add_size = [](int a, std::vector<size_t> const & v2){ return a + v2.size(); };
-//                 size_t still_missing = std::accumulate(remaining_clusters.begin() + ridx, remaining_clusters.end(), 0u, add_size);
-// std::ofstream ofs{"/tmp/top_level_estimtate." + std::to_string(corrected_estimate_per_part)};
-// for (size_t i = 0; i < partition_sketches.size(); ++i)
-// {
-//     ofs << i << ":" << partition_sketches[i].estimate() << ":" << partitions[i].size() << std::endl;
-// }
-// std::cout << "Adapting corrected_estimate_per_part from " << corrected_estimate_per_part;
-//                 corrected_estimate_per_part = static_cast<double>(corrected_estimate_per_part) * (1.0 + static_cast<double>(still_missing)/positions.size());
-// std::cout << "to " << corrected_estimate_per_part << std::endl;
-//                 --ridx; // process cluster again
-//             }
         }
-std::ofstream ofs{"/tmp/top_level_estimtate.final." + std::to_string(corrected_estimate_per_part)};
-for (size_t i = 0; i < partition_sketches.size(); ++i)
-{
-    ofs << i << ":" << partition_sketches[i].estimate() << ":" << partitions[i].size() << std::endl;
-}
-
     }
 
     // sanity check:
