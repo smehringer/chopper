@@ -689,8 +689,8 @@ bool find_best_partition(chopper::configuration const & config,
         // double const subsume_ratio = static_cast<double>(intersection) / current_partition_size;
 //std::cout << "p:" << p << " p-#UBs" << positions[p].size() << " penalty:" <<  penalty(cluster.size(), p) << " change:" << change << " union-current_p:" << (union_estimate - current_partition_size) << " union:" << union_estimate << " current_p:" << current_partition_size << " t:" << corrected_estimate_per_part << std::endl;
         if (change == 0 || /* If there is no penalty at all, this is a best fit even if the partition is "full"*/
-            (smallest_change > change /*&& /*subsume_ratio > best_subsume_ratio &&*/
-            /*current_partition_size < corrected_estimate_per_part*/))
+            (smallest_change > change && /*subsume_ratio > best_subsume_ratio &&*/
+            current_partition_size < corrected_estimate_per_part))
         {
 //std::cout << "smaller!" << std::endl;
             // best_subsume_ratio = subsume_ratio;
@@ -943,7 +943,7 @@ void partition_user_bins(chopper::configuration const & config,
         std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
 
-        size_t corrected_estimate_per_part = estimate_per_part;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
+        size_t corrected_estimate_per_part = estimate_per_part * 1.5;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
 
         size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(positions.size(), config.number_of_partitions);
         size_t const block_size =
@@ -1013,7 +1013,7 @@ void partition_user_bins(chopper::configuration const & config,
 //std::cout << "LSH partitioning into " << config.number_of_partitions << std::endl;
         std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
-        size_t corrected_estimate_per_part = estimate_per_part;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
+        size_t corrected_estimate_per_part = estimate_per_part * 1.5;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
         size_t original_estimate_per_part = estimate_per_part;
 
         std::vector<size_t> max_partition_cardinality(config.number_of_partitions, 0u);
