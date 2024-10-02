@@ -608,7 +608,7 @@ bool find_best_partition(chopper::configuration const & config,
         return result;
     }();
 
-    size_t max_card = [&cardinalities,  &cluster] ()
+    size_t const max_card = [&cardinalities,  &cluster] ()
     {
         size_t max{0};
 
@@ -632,23 +632,10 @@ bool find_best_partition(chopper::configuration const & config,
 
     auto penalty_lower_level = [&] (size_t const additional_number_of_user_bins, size_t const p)
     {
-        if (additional_number_of_user_bins != 1)
-            throw "currently only for adding a single user bin";
-
         size_t min = std::min(max_card, min_partition_cardinality[p]);
         size_t max = std::max(max_card, max_partition_cardinality[p]);
 
-        if (positions[p].size() == config.hibf_config.tmax)
-        {
-            // if the current merged bin contains exactly tmax UBS, adding otherone must
-            // result in another lower level. Most likely, the smallest user bin will end up on the lower level
-            // therefore the penalty is set to 'min * tmax'
-            // of course, there could also be a third level with a lower number of user bins, but this is hard to
-            // estimate.
-            size_t const penalty = min * config.hibf_config.tmax;
-            return penalty;
-        }
-        else if (positions[p].size() > config.hibf_config.tmax) // already a third level
+        if (positions[p].size() > config.hibf_config.tmax) // already a third level
         {
             // if there must already be another lower level because the current merged bin contains more than tmax
             // user bins, then the current user bin is very likely stored multiple times. Therefore, the penalty is set
@@ -657,6 +644,16 @@ bool find_best_partition(chopper::configuration const & config,
             size_t const num_ubs_in_merged_bin{positions[p].size() + additional_number_of_user_bins};
             double const levels = std::log(num_ubs_in_merged_bin) / std::log(config.hibf_config.tmax);
             return  static_cast<size_t>(max_card * levels);
+        }
+        else if (positions[p].size() + additional_number_of_user_bins > config.hibf_config.tmax) // now a third level
+        {
+            // if the current merged bin contains exactly tmax UBS, adding otherone must
+            // result in another lower level. Most likely, the smallest user bin will end up on the lower level
+            // therefore the penalty is set to 'min * tmax'
+            // of course, there could also be a third level with a lower number of user bins, but this is hard to
+            // estimate.
+            size_t const penalty = min * config.hibf_config.tmax;
+            return penalty;
         }
         else // positions[p].size() + additional_number_of_user_bins < tmax
         {
@@ -701,7 +698,7 @@ bool find_best_partition(chopper::configuration const & config,
     }
 
     if (!best_p_found)
-        return false;
+        throw "currently there are no safety measures if a partition is not found because it is very unlikely";
 
 //std::cout << "best_p:" << best_p << std::endl<< std::endl;
 
@@ -1328,12 +1325,9 @@ for (size_t i = 0; i < clusters.size(); ++i)
         {
             auto const & cluster = remaining_clusters[ridx];
 
-            for (size_t uidx = 0; uidx < cluster.size(); ++uidx)
-            {
-                config.search_partition_algorithm_timer.start();
-                find_best_partition(config, corrected_estimate_per_part, {cluster[uidx]}, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
-                config.search_partition_algorithm_timer.start();
-            }
+            config.search_partition_algorithm_timer.start();
+            find_best_partition(config, corrected_estimate_per_part, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
+            config.search_partition_algorithm_timer.start();
         }
     }
 
@@ -1550,15 +1544,12 @@ void fast_layout(chopper::configuration const & config,
     auto config_copy = config;
     config_copy.number_of_partitions = config.hibf_config.tmax;
 
-    seqan::hibf::concurrent_timer intital_partition_timer{};
-    seqan::hibf::concurrent_timer small_layouts_timer{};
-
     std::vector<std::vector<size_t>> tmax_partitions(config.hibf_config.tmax);
 
     // here we assume that we want to start with a fast layout
-    intital_partition_timer.start();
+    config.intital_partition_timer.start();
     partition_user_bins(config_copy, positions, cardinalities, sketches, minHash_sketches, tmax_partitions);
-    intital_partition_timer.stop();
+    config.intital_partition_timer.stop();
 
     hibf_layout.top_level_max_bin_id = determine_max_bin(tmax_partitions, sketches);
 
@@ -1576,7 +1567,7 @@ void fast_layout(chopper::configuration const & config,
         }
     }
 
-    small_layouts_timer.start();
+    config.small_layouts_timer.start();
     #pragma omp parallel
     #pragma omp single
     {
@@ -1603,17 +1594,7 @@ void fast_layout(chopper::configuration const & config,
             }
         }
     }
-    small_layouts_timer.stop();
-
-    if (!config.output_timings.empty())
-    {
-        std::ofstream output_stream{config.output_timings, std::ios_base::app};
-        output_stream << std::fixed << std::setprecision(2);
-        output_stream << "intital_partitioning\t"
-                        << "all_small_layouts\n";
-        output_stream << intital_partition_timer.in_seconds() << '\t';
-        output_stream << small_layouts_timer.in_seconds() << '\t';
-    }
+    config.small_layouts_timer.stop();
 }
 
 int execute(chopper::configuration & config,
