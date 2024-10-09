@@ -735,6 +735,16 @@ bool find_best_sorted_partition(chopper::configuration const & config,
         return max;
     }();
 
+    size_t sum_card = [&cardinalities,  &cluster] ()
+    {
+        size_t sum{0};
+
+        for (size_t const user_bin_idx : cluster)
+            sum += cardinalities[user_bin_idx];
+
+        return sum;
+    }();
+
     size_t smallest_change{std::numeric_limits<size_t>::max()};
     size_t best_p{0};
     bool best_p_found{false};
@@ -781,7 +791,9 @@ bool find_best_sorted_partition(chopper::configuration const & config,
 
     for (size_t p = 0; p < config.number_of_partitions; ++p)
     {
-        size_t const change = penalty_lower_level(cluster.size(), p);
+        size_t const sum = partition_sizes[p] + sum_card;
+        size_t const penalty_current_ibf = config.hibf_config.tmax * ((sum <= corrected_estimate_per_part) ? 0u : sum - corrected_estimate_per_part);
+        size_t const change = penalty_current_ibf + penalty_lower_level(cluster.size(), p);
 
         if (change == 0 || /* If there is no penalty at all, this is a best fit even if the partition is "full"*/
             (smallest_change > change && /*subsume_ratio > best_subsume_ratio &&*/
