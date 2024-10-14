@@ -838,28 +838,20 @@ void partition_user_bins(chopper::configuration const & config,
         return ps;
     }();
 
-    size_t const sum_of_cardinalities = [&positions, &cardinalities]()
+    auto const [sum_of_cardinalities, max_cardinality, joint_estimate] = [&]()
     {
         size_t sum{0};
-        for (size_t const pos : positions)
-            sum += cardinalities[pos];
-        return sum;
-    }();
-
-    size_t const joint_estimate = [&config, &positions, &sketches]()
-    {
-        seqan::hibf::sketch::hyperloglog sketch{config.hibf_config.sketch_bits};
-        for (size_t const pos : positions)
-            sketch.merge(sketches[pos]);
-        return sketch.estimate();
-    }();
-
-    size_t const max_cardinality = [&positions, &cardinalities]()
-    {
         size_t max{0};
+        seqan::hibf::sketch::hyperloglog sketch{config.hibf_config.sketch_bits};
+
         for (size_t const pos : positions)
+        {
+            sum += cardinalities[pos];
             max = std::max(max, cardinalities[pos]);
-        return max;
+            sketch.merge(sketches[pos]);
+        }
+
+        return std::tuple<size_t,size_t,size_t>{sum, max, sketch.estimate()};
     }();
 
     // If the effective text size is very low, it can happen that the joint_estimate divided by the number of partitions
