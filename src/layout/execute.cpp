@@ -1456,15 +1456,15 @@ size_t determine_max_bin(std::vector<std::vector<size_t>> const & positions,
 }
 
 void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
-                         std::vector<std::vector<size_t>> const & positions,
+                         std::vector<std::vector<size_t>> const & partitions,
                          std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
                          std::vector<size_t> const & previous)
 {
-    hibf_layout.max_bins.emplace_back(previous, determine_max_bin(positions, sketches)); // add lower level meta information
+    hibf_layout.max_bins.emplace_back(previous, determine_max_bin(partitions, sketches)); // add lower level meta information
 
     // we assume here that the user bins have been sorted by user bin id such that pos = idx
     size_t partition_idx{0};
-    for (auto const & partition : positions)
+    for (auto const & partition : partitions)
     {
         for (size_t const user_bin_id : partition)
         {
