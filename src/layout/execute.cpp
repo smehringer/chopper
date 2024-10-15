@@ -1499,7 +1499,7 @@ void fast_layout_recursion(chopper::configuration const & config,
         auto const & partition = tmax_partitions[partition_idx];
         auto const new_previous = [&] () {auto cpy{previous}; cpy.push_back(partition_idx); return cpy; }();
 
-        if (partition.empty() && partition.size() == 1) // nothing to merge
+        if (partition.empty() || partition.size() == 1) // nothing to merge
             continue;
 
         if (do_I_need_a_fast_layout(config, partition, cardinalities))
