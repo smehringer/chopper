@@ -865,27 +865,7 @@ void partition_user_bins(chopper::configuration const & config,
 
     if (config.partitioning_approach == partitioning_scheme::blocked)
     {
-        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(sorted_positions.size(), config.number_of_partitions);
-        size_t const block_size =
-            std::min(u_bins_per_part,
-                     chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
 
-        size_t current_part{0u};
-        size_t current_block_count{0};
-
-        for (size_t const current_user_bin_id : sorted_positions)
-        {
-            partitions[current_part].push_back(current_user_bin_id);
-            ++current_block_count;
-
-            if (current_block_count >= block_size)
-            {
-                current_block_count = 0;
-                ++current_part;
-                if (current_part == config.number_of_partitions) // we need to circle back to the first partition
-                    current_part = 0;
-            }
-        }
     }
     else if (config.partitioning_approach == partitioning_scheme::sorted)
     {
