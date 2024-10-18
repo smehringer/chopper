@@ -823,6 +823,36 @@ bool find_best_sorted_partition(chopper::configuration const & config,
     return true;
 }
 
+size_t split_bins(chopper::configuration const & config,
+                               std::vector<size_t> const & sorted_positions,
+                               std::vector<size_t> const & cardinalities,
+                               std::vector<std::vector<size_t>> & partitions,
+                               size_t const sum_of_cardinalities,
+                               size_t const end_idx)
+{
+    // assign split bins to the end. makes it easier to process merged bins afterwards
+    size_t pos{partitions.size() - 1};
+    for (size_t idx = 0; idx < end_idx; ++idx)
+    {
+        size_t const ub_idx{sorted_positions[idx]};
+        size_t const number_of_split_tbs = std::max((size_t)1, config.number_of_partitions * cardinalities[ub_idx] / sum_of_cardinalities);
+std::cout << "number_of_split_tbs: " << number_of_split_tbs
+          << " cardinalities[ub_idx]:" << cardinalities[ub_idx]
+          << " sum_of_cardinalities:" << sum_of_cardinalities
+          << std::endl;
+        // fill partitions from behind to ensure an easier layouting
+        for (size_t i = 0; i < number_of_split_tbs; ++i)
+        {
+            assert(pos > 0);
+            assert(partitions[pos].empty());
+            partitions[pos].push_back(ub_idx);
+            --pos;
+        }
+    }
+    std::cout << "pos: " << pos << std::endl;
+    return pos + 1;
+}
+
 void partition_user_bins(chopper::configuration const & config,
                          std::vector<size_t> const & positions,
                          std::vector<size_t> const & cardinalities,
@@ -865,7 +895,31 @@ void partition_user_bins(chopper::configuration const & config,
 
     if (config.partitioning_approach == partitioning_scheme::blocked)
     {
+        size_t const estimated_size_per_tb = seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
 
+        size_t idx{0};
+
+        while (cardinalities[sorted_positions[idx]] > 2 * estimated_size_per_tb)
+            ++idx;
+
+        size_t const number_of_remaining_tbs = split_bins(config, sorted_positions, cardinalities, partitions, sum_of_cardinalities, idx);
+std::cout << "number_of_remaining_tbs: " << number_of_remaining_tbs << " idx:" << idx << std::endl;
+        size_t current_part{0};
+        size_t current_sum{0};
+
+        for (;idx < sorted_positions.size(); ++idx)
+        {
+            size_t const current_user_bin_id{sorted_positions[idx]};
+            partitions[current_part].push_back(current_user_bin_id);
+            current_sum += cardinalities[current_user_bin_id];
+
+            if (current_sum >= estimated_size_per_tb && current_part < number_of_remaining_tbs)
+            {
+                ++current_part;
+                current_sum = 0;
+                assert(current_part < number_of_remaining_tbs);
+            }
+        }
     }
     else if (config.partitioning_approach == partitioning_scheme::sorted)
     {
@@ -1317,8 +1371,22 @@ for (size_t i = 0; i < clusters.size(); ++i)
 
     // sanity check:
     size_t sum{0};
+    size_t last_index{sketches.size()}; // non existing user bin idx
     for (auto const & p : partitions)
-        sum += p.size();
+    {
+        if (p.size() == 1)
+        {
+            // for split bins, avoid additional counts
+            if (p[0] != last_index)
+                ++sum;
+
+            last_index = p[0];
+        }
+        else
+        {
+            sum += p.size();
+        }
+    }
 
     if (sum != sketches.size())
     {
@@ -1435,9 +1503,9 @@ void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
     hibf_layout.max_bins.emplace_back(previous, determine_max_bin(partitions, sketches)); // add lower level meta information
 
     // we assume here that the user bins have been sorted by user bin id such that pos = idx
-    size_t partition_idx{0};
-    for (auto const & partition : partitions)
+    for (size_t partition_idx{0}; partition_idx < partitions.size(); ++partition_idx)
     {
+        auto const & partition = partitions[partition_idx];
         for (size_t const user_bin_id : partition)
         {
             assert(hibf_layout.user_bins[user_bin_id].idx == user_bin_id);
@@ -1445,10 +1513,27 @@ void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
 
             // update
             assert(previous == current_user_bin.previous_TB_indices);
-            // TODO: this should not happen for single bins?
-            current_user_bin.previous_TB_indices.push_back(partition_idx);
+
+            if (partition.size() > 1) // merged bin
+            {
+                current_user_bin.previous_TB_indices.push_back(partition_idx);
+            }
+            else // single or split bin
+            {
+                current_user_bin.storage_TB_id = partition_idx;
+                size_t num_tbs{1};
+                while (partition_idx + 1 < partitions.size() &&
+                       partitions[partition_idx].size() == 1 &&
+                       partitions[partition_idx + 1].size() == 1 &&
+                       partitions[partition_idx][0] == partitions[partition_idx + 1][0])
+                {
+                    ++num_tbs;
+                    ++partition_idx;
+                }
+
+                current_user_bin.number_of_technical_bins = partition_idx;
+            }
         }
-        ++partition_idx;
     }
 }
 
@@ -1542,12 +1627,33 @@ void fast_layout(chopper::configuration const & config,
     // initialise user bins in layout
     for (size_t partition_idx = 0; partition_idx < tmax_partitions.size(); ++partition_idx)
     {
-        for (size_t const user_bin_id : tmax_partitions[partition_idx])
+        if (tmax_partitions[partition_idx].size() > 1) // merged bin
         {
-            hibf_layout.user_bins[user_bin_id] = {.previous_TB_indices = {partition_idx},
-                                                  .storage_TB_id = 0 /*not determiend yet*/,
-                                                  .number_of_technical_bins = 1 /*not determiend yet*/,
+            for (size_t const user_bin_id : tmax_partitions[partition_idx])
+            {
+                hibf_layout.user_bins[user_bin_id] = {.previous_TB_indices = {partition_idx},
+                                                      .storage_TB_id = 0 /*not determiend yet*/,
+                                                      .number_of_technical_bins = 1 /*not determiend yet*/,
+                                                      .idx = user_bin_id};
+            }
+        }
+        else // single or split bin
+        {
+            assert(tmax_partitions[partition_idx].size() == 1);
+            size_t const user_bin_id = tmax_partitions[partition_idx][0];
+            hibf_layout.user_bins[user_bin_id] = {.previous_TB_indices = {},
+                                                  .storage_TB_id = partition_idx,
+                                                  .number_of_technical_bins = 1 /*determiend below*/,
                                                   .idx = user_bin_id};
+
+            while (partition_idx + 1 < tmax_partitions.size() &&
+                    tmax_partitions[partition_idx].size() == 1 &&
+                    tmax_partitions[partition_idx + 1].size() == 1 &&
+                    tmax_partitions[partition_idx][0] == tmax_partitions[partition_idx + 1][0])
+            {
+                ++hibf_layout.user_bins[user_bin_id].number_of_technical_bins;
+                ++partition_idx;
+            }
         }
     }
 
