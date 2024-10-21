@@ -589,6 +589,7 @@ std::vector<MultiCluster> sim_dist_LSH_partitioning(std::vector<seqan::hibf::ske
 }
 
 bool find_best_partition(chopper::configuration const & config,
+                         size_t const number_of_partitions,
                          size_t & corrected_estimate_per_part,
                          std::vector<size_t> const & cluster,
                          std::vector<size_t> const & cardinalities,
@@ -670,7 +671,7 @@ bool find_best_partition(chopper::configuration const & config,
         return (size_t)0u;
     };
 
-    for (size_t p = 0; p < config.number_of_partitions; ++p)
+    for (size_t p = 0; p < number_of_partitions; ++p)
     {
         seqan::hibf::sketch::hyperloglog union_sketch = current_sketch;
         union_sketch.merge(partition_sketches[p]);
@@ -1070,20 +1071,28 @@ std::cout << "number_of_remaining_tbs: " << number_of_remaining_tbs << " idx:" <
     }
     else if (config.partitioning_approach == partitioning_scheme::similarity)
     {
+        // determine split bins
+        size_t const split_threshold = seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
+        size_t idx{0};
+        while (cardinalities[sorted_positions[idx]] > 2 * split_threshold)
+            ++idx;
+        size_t const number_of_remaining_tbs = split_bins(config, sorted_positions, cardinalities, partitions, sum_of_cardinalities, idx);
+        size_t const number_of_remaining_ubs = positions.size() - idx;
+
         uint8_t const sketch_bits{config.hibf_config.sketch_bits};
-        std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
+        std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(number_of_remaining_tbs,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
 
         size_t corrected_estimate_per_part = estimate_per_part * 1.5;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
 
-        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(positions.size(), config.number_of_partitions);
+        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(number_of_remaining_ubs, number_of_remaining_tbs);
         size_t const block_size =
             std::min(u_bins_per_part,
                      chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
-        size_t const number_of_blocks = seqan::hibf::divide_and_ceil(positions.size(), block_size);
+        size_t const number_of_blocks = seqan::hibf::divide_and_ceil(number_of_remaining_ubs, block_size);
 
-        std::vector<size_t> max_partition_cardinality(config.number_of_partitions, 0u);
-        std::vector<size_t> min_partition_cardinality(config.number_of_partitions, std::numeric_limits<size_t>::max());
+        std::vector<size_t> max_partition_cardinality(number_of_remaining_tbs, 0u);
+        std::vector<size_t> min_partition_cardinality(number_of_remaining_tbs, std::numeric_limits<size_t>::max());
 
         // don't move from largest to smallest but pick the next block to process randomly.
         // this probably leads to more evenly distributed partitions (evenly in terms of number of user bins)
@@ -1093,16 +1102,16 @@ std::cout << "number_of_remaining_tbs: " << number_of_remaining_tbs << " idx:" <
         std::mt19937 shuffle_engine(shuffle_random_device());
         std::shuffle(indices.begin(), indices.end(), shuffle_engine);
 
-        // initialise partitions with the first random config.number_of_partitions blocks
-        assert(number_of_blocks >= config.number_of_partitions);
-        for (size_t p = 0; p < config.number_of_partitions; ++p)
+        // initialise partitions with the first random number_of_remaining_tbs blocks
+        assert(number_of_blocks >= number_of_remaining_tbs);
+        for (size_t p = 0; p < number_of_remaining_tbs; ++p)
         {
             size_t const i = indices[p];
-            size_t const end = (i == (indices.size() - 1) && (cardinalities.size() % block_size != 0)) ? (cardinalities.size() % block_size) : block_size;
+            size_t const end = (i == (indices.size() - 1) && (number_of_remaining_ubs % block_size != 0)) ? (number_of_remaining_ubs % block_size) : block_size;
             for (size_t x = 0; x < end; ++x)
             {
-                assert(block_size * i + x < sorted_positions.size());
-                size_t const user_bin_idx{sorted_positions[block_size * i + x]};
+                assert(idx + block_size * i + x < sorted_positions.size());
+                size_t const user_bin_idx{sorted_positions[idx + block_size * i + x]};
                 partition_sketches[p].merge(sketches[user_bin_idx]);
                 partitions[p].push_back(user_bin_idx);
                 max_partition_cardinality[p] = std::max(max_partition_cardinality[p], cardinalities[user_bin_idx]);
@@ -1110,16 +1119,16 @@ std::cout << "number_of_remaining_tbs: " << number_of_remaining_tbs << " idx:" <
             }
         }
 
-        auto has_been_processed_in_init = [&config,&indices, &block_size](size_t const i)
+        auto has_been_processed_in_init = [&](size_t const i)
         {
             bool result{false};
-            for (size_t p = 0; p < config.number_of_partitions; ++p)
-                result |= ((indices[p] * block_size) == i);
+            for (size_t p = 0; p < number_of_remaining_tbs; ++p)
+                result |= ((idx + indices[p] * block_size) == i);
             return result;
         };
 
         // assign the rest by similarity, user in by user bin (single bins, no blocks)
-        for (size_t i = 0; i < sorted_positions.size(); ++i)
+        for (size_t i = idx; i < sorted_positions.size(); ++i)
         {
             if (has_been_processed_in_init(i))
             {
@@ -1128,6 +1137,7 @@ std::cout << "number_of_remaining_tbs: " << number_of_remaining_tbs << " idx:" <
             }
 
             find_best_partition(config,
+                                number_of_remaining_tbs,
                                 corrected_estimate_per_part,
                                 {sorted_positions[i]},
                                 cardinalities,
@@ -1254,20 +1264,28 @@ for (size_t i = 0; i < clusters.size(); ++i)
     }
     else if (config.partitioning_approach == partitioning_scheme::lsh_sim)
     {
+        // determine split bins
+        size_t const split_threshold = seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
+        size_t idx{0};
+        while (cardinalities[sorted_positions[idx]] > 2 * split_threshold)
+            ++idx;
+        size_t const number_of_remaining_tbs = split_bins(config, sorted_positions, cardinalities, partitions, sum_of_cardinalities, idx);
+        std::vector<size_t> sorted_positions2(sorted_positions.begin() + idx, sorted_positions.end());
+
         uint8_t const sketch_bits{config.hibf_config.sketch_bits};
 //std::cout << "LSH partitioning into " << config.number_of_partitions << std::endl;
-        std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions,
+        std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(number_of_remaining_tbs,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
 
         size_t corrected_estimate_per_part = estimate_per_part * 1.5;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
         size_t original_estimate_per_part = estimate_per_part;
 
-        std::vector<size_t> max_partition_cardinality(config.number_of_partitions, 0u);
-        std::vector<size_t> min_partition_cardinality(config.number_of_partitions, std::numeric_limits<size_t>::max());
+        std::vector<size_t> max_partition_cardinality(number_of_remaining_tbs, 0u);
+        std::vector<size_t> min_partition_cardinality(number_of_remaining_tbs, std::numeric_limits<size_t>::max());
 
         // initial partitioning using locality sensitive hashing (LSH)
         config.lsh_algorithm_timer.start();
-        std::vector<Cluster> clusters = very_similar_LSH_partitioning(minHash_sketches, positions, cardinalities, sketches, original_estimate_per_part, config);
+        std::vector<Cluster> clusters = very_similar_LSH_partitioning(minHash_sketches, sorted_positions2, cardinalities, sketches, original_estimate_per_part, config);
         post_process_clusters(clusters, cardinalities, config);
         config.lsh_algorithm_timer.stop();
 
@@ -1284,7 +1302,7 @@ for (size_t i = 0; i < clusters.size(); ++i)
 
         // initialise partitions with the first p largest clusters (post_processing sorts by size)
         size_t cidx{0}; // current cluster index
-        for (size_t p = 0; p < config.number_of_partitions; ++p)
+        for (size_t p = 0; p < number_of_remaining_tbs; ++p)
         {
             assert(!clusters[cidx].empty());
             auto const & cluster = clusters[cidx].contained_user_bins();
@@ -1310,7 +1328,7 @@ for (size_t i = 0; i < clusters.size(); ++i)
                 {
                     ++p;
                     // p_has_been_incremented = true;
-                    assert(p < config.number_of_partitions);
+                    assert(p < number_of_remaining_tbs);
                 }
 
                 partition_sketches[p].merge(sketches[user_bin_idx]);
@@ -1364,7 +1382,7 @@ for (size_t i = 0; i < clusters.size(); ++i)
             auto const & cluster = remaining_clusters[ridx];
 
             config.search_partition_algorithm_timer.start();
-            find_best_partition(config, corrected_estimate_per_part, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
+            find_best_partition(config, number_of_remaining_tbs, corrected_estimate_per_part, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
             config.search_partition_algorithm_timer.start();
         }
     }
