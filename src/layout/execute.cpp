@@ -1536,6 +1536,10 @@ void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
             {
                 current_user_bin.previous_TB_indices.push_back(partition_idx);
             }
+            else if (partition.size() == 0) // should not happen.. dge case?
+            {
+                continue;
+            }
             else // single or split bin
             {
                 current_user_bin.storage_TB_id = partition_idx;
@@ -1655,7 +1659,11 @@ void fast_layout(chopper::configuration const & config,
                                                       .idx = user_bin_id};
             }
         }
-        else // single or split bin
+        else if (tmax_partitions[partition_idx].size() == 0) // should not happen. Edge case?
+        {
+            continue;
+        }
+        else // single or split bin (tmax_partitions[partition_idx].size() == 1)
         {
             assert(tmax_partitions[partition_idx].size() == 1);
             size_t const user_bin_id = tmax_partitions[partition_idx][0];
