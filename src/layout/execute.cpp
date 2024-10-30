@@ -32,6 +32,8 @@
 #include <chopper/sketch/output.hpp>
 #include <chopper/lsh.hpp>
 
+#include <hibf/layout/compute_fpr_correction.hpp>
+#include <hibf/layout/compute_relaxed_fpr_correction.hpp> // for compute_relaxed_fpr_correction
 #include <hibf/layout/compute_layout.hpp>
 #include <hibf/layout/layout.hpp>
 #include <hibf/misc/divide_and_ceil.hpp>
@@ -854,6 +856,286 @@ std::cout << "number_of_split_tbs: " << number_of_split_tbs
     return pos + 1;
 }
 
+std::pair<size_t, size_t> find_bins_to_be_split(std::vector<size_t> const & sorted_positions,
+                            std::vector<size_t> const & cardinalities,
+                            size_t const threshold,
+                            size_t const max_bins)
+{
+    size_t idx{0};
+    size_t sum{0};
+
+    while (cardinalities[sorted_positions[idx]] > 2 * threshold)
+    {
+        sum += cardinalities[sorted_positions[idx]];
+        ++idx;
+    }
+
+    // It can happen that the user bins are so big and similar, that the threshold is bad and there are more splits
+    // than technical bins. Clamp the number of split bins to a a maximum of tmax - 1 to allow for one merged bin.
+    size_t const number_of_split_bins = std::min(sum / threshold, max_bins);
+    // This might also mean that there are more user bins (position of idx) than available split bins.
+    // Thus, clamp the number of user bins to split to maximally the number_of_split_bins
+    idx = std::min(idx, number_of_split_bins);
+
+    return {idx, number_of_split_bins};
+}
+
+size_t lsh_sim_approach(chopper::configuration const & config,
+                      std::vector<size_t> const & sorted_positions2,
+                      std::vector<size_t> const & cardinalities,
+                      std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+                      std::vector<seqan::hibf::sketch::minhashes> const & minHash_sketches,
+                      std::vector<std::vector<size_t>> & partitions,
+                      size_t const number_of_remaining_tbs,
+                      size_t const technical_bin_size_threshold,
+                      size_t const sum_of_cardinalities)
+{
+    uint8_t const sketch_bits{config.hibf_config.sketch_bits};
+    //std::cout << "LSH partitioning into " << config.number_of_partitions << std::endl;
+    std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(number_of_remaining_tbs,
+                                                                     seqan::hibf::sketch::hyperloglog(sketch_bits));
+
+    std::vector<size_t> max_partition_cardinality(number_of_remaining_tbs, 0u);
+    std::vector<size_t> min_partition_cardinality(number_of_remaining_tbs, std::numeric_limits<size_t>::max());
+
+    // initial partitioning using locality sensitive hashing (LSH)
+    config.lsh_algorithm_timer.start();
+    std::vector<Cluster> clusters = very_similar_LSH_partitioning(minHash_sketches, sorted_positions2, cardinalities, sketches, technical_bin_size_threshold, config);
+    post_process_clusters(clusters, cardinalities, config);
+    config.lsh_algorithm_timer.stop();
+
+std::ofstream ofs{"/tmp/final.clusters"};
+for (size_t i = 0; i < clusters.size(); ++i)
+{
+seqan::hibf::sketch::hyperloglog sketch(config.hibf_config.sketch_bits);
+for (size_t j = 0; j < clusters[i].size(); ++j)
+{
+    sketch.merge(sketches[clusters[i].contained_user_bins()[j]]);
+}
+ofs << i << ":" << sketch.estimate() << ":" << clusters[i].size() << std::endl;
+}
+
+    // initialise partitions with the first p largest clusters (post_processing sorts by size)
+    size_t cidx{0}; // current cluster index
+    for (size_t p = 0; p < number_of_remaining_tbs; ++p)
+    {
+        assert(!clusters[cidx].empty());
+        auto const & cluster = clusters[cidx].contained_user_bins();
+        bool split_cluster = false;
+
+        if (cluster.size() > config.hibf_config.tmax)
+        {
+            size_t card{0};
+            for (size_t uidx = 0; uidx < cluster.size(); ++uidx)
+                card += cardinalities[cluster[uidx]];
+
+            if (card > 0.05 * sum_of_cardinalities / config.hibf_config.tmax)
+                split_cluster = true;
+        }
+
+        size_t const end = (split_cluster) ? cluster.size() : std::min(cluster.size(), config.hibf_config.tmax);
+        for (size_t uidx = 0; uidx < end; ++uidx)
+        {
+            size_t const user_bin_idx = cluster[uidx];
+            // if a single cluster already exceeds the cardinality_per_part,
+            // then the remaining user bins of the cluster must spill over into the next partition
+            if ((uidx != 0 && (uidx % config.hibf_config.tmax == 0)) || partition_sketches[p].estimate() > technical_bin_size_threshold)
+            {
+                ++p;
+                // p_has_been_incremented = true;
+                assert(p < number_of_remaining_tbs);
+            }
+
+            partition_sketches[p].merge(sketches[user_bin_idx]);
+            partitions[p].push_back(user_bin_idx);
+            max_partition_cardinality[p] = std::max(max_partition_cardinality[p], cardinalities[user_bin_idx]);
+            min_partition_cardinality[p] = std::min(min_partition_cardinality[p], cardinalities[user_bin_idx]);
+        }
+
+        ++cidx;
+    }
+
+    std::vector<std::vector<size_t>> remaining_clusters{};
+
+    for (size_t i = 0; i < clusters.size(); ++i)
+    {
+        if (clusters[i].empty())
+            break;
+
+        auto const & cluster = clusters[i].contained_user_bins();
+
+        // if i < cidx the first cluster was already used in initialising above
+        if (i < cidx)
+        {
+            bool split_cluster = false;
+            if (cluster.size() > config.hibf_config.tmax)
+            {
+                size_t card{0};
+                for (size_t uidx = 0; uidx < cluster.size(); ++uidx)
+                    card += cardinalities[cluster[uidx]];
+
+                if (card > 0.05 * sum_of_cardinalities / config.hibf_config.tmax)
+                    split_cluster = true;
+            }
+
+            if (cluster.size() > config.hibf_config.tmax && !split_cluster) // then only the first tmax UBs have been consumed
+            {
+                std::vector<size_t> remainder(cluster.begin() + config.hibf_config.tmax, cluster.end());
+                remaining_clusters.insert(remaining_clusters.end(), remainder);
+            }
+            // otherwise ignore cluster
+        }
+        else
+        {
+            remaining_clusters.insert(remaining_clusters.end(), cluster);
+        }
+    }
+
+    // assign the rest by similarity
+    size_t max_size{technical_bin_size_threshold};
+    for (size_t ridx = 0; ridx < remaining_clusters.size(); ++ridx)
+    {
+        auto const & cluster = remaining_clusters[ridx];
+
+        config.search_partition_algorithm_timer.start();
+        find_best_partition(config, number_of_remaining_tbs, max_size, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
+        config.search_partition_algorithm_timer.start();
+    }
+
+    return max_size;
+}
+
+std::pair<size_t, size_t> determine_split_bins(chopper::configuration const & config,
+                                               std::vector<size_t> const & positions,
+                                               std::vector<size_t> const & cardinalities,
+                                               size_t const num_technical_bins,
+                                               size_t const num_user_bins,
+                                               std::vector<std::vector<size_t>> & partitions)
+{
+    if (num_user_bins == 0)
+        return {0,0};
+
+    assert(num_technical_bins > 0u);
+    assert(num_user_bins > 0u);
+    assert(num_user_bins <= num_technical_bins);
+
+    auto const fpr_correction = seqan::hibf::layout::compute_fpr_correction({.fpr = config.hibf_config.maximum_fpr, //
+                                                        .hash_count = config.hibf_config.number_of_hash_functions,
+                                                        .t_max = num_technical_bins});
+
+    std::vector<std::vector<size_t>> matrix(num_technical_bins); // rows
+    for (auto & v : matrix)
+        v.resize(num_user_bins, std::numeric_limits<size_t>::max()); // columns
+
+    std::vector<std::vector<size_t>> trace(num_technical_bins); // rows
+    for (auto & v : trace)
+        v.resize(num_user_bins, std::numeric_limits<size_t>::max()); // columns
+
+    size_t const extra_bins = num_technical_bins - num_user_bins + 1;
+
+    // initialize first column (first row is initialized with inf)
+    double const ub_cardinality = static_cast<double>(cardinalities[positions[0]]);
+    for (size_t i = 0; i < extra_bins; ++i)
+    {
+        size_t const corrected_ub_cardinality = static_cast<size_t>(ub_cardinality * fpr_correction[i + 1]);
+        matrix[i][0] = seqan::hibf::divide_and_ceil(corrected_ub_cardinality, i + 1u);
+    }
+
+    // we must iterate column wise
+    for (size_t j = 1; j < num_user_bins; ++j)
+    {
+        double const ub_cardinality = static_cast<double>(cardinalities[positions[j]]);
+
+        for (size_t i = j; i < j + extra_bins; ++i)
+        {
+            size_t minimum{std::numeric_limits<size_t>::max()};
+
+            for (size_t i_prime = j - 1; i_prime < i; ++i_prime)
+            {
+                size_t const corrected_ub_cardinality =
+                    static_cast<size_t>(ub_cardinality * fpr_correction[(i - i_prime)]);
+                size_t score =
+                    std::max<size_t>(seqan::hibf::divide_and_ceil(corrected_ub_cardinality, i - i_prime), matrix[i_prime][j - 1]);
+
+                // std::cout << "j:" << j << " i:" << i << " i':" << i_prime << " score:" << score << std::endl;
+
+                minimum = (score < minimum) ? (trace[i][j] = i_prime, score) : minimum;
+            }
+
+            matrix[i][j] = minimum;
+        }
+    }
+
+    // seqan::hibf::layout::print_matrix(matrix, num_technical_bins, num_user_bins, std::numeric_limits<size_t>::max());
+    //seqan::hibf::layout::print_matrix(trace, num_technical_bins, num_user_bins, std::numeric_limits<size_t>::max());
+
+    // backtracking
+    // first, in the last column, find the row with minimum score (it can happen that the last rows are equally good)
+    // the less rows, the better
+    size_t trace_i{num_technical_bins - 1};
+    size_t best_score{std::numeric_limits<size_t>::max()};
+    for (size_t best_i{0}; best_i < num_technical_bins; ++best_i)
+    {
+        if (matrix[best_i][num_user_bins - 1] < best_score)
+        {
+            best_score = matrix[best_i][num_user_bins - 1];
+            trace_i = best_i;
+        }
+    }
+    size_t const number_of_split_technical_bins{trace_i + 1}; // trace_i is the position. So +1 for the number
+
+    // now that we found the best trace_i start usual backtracking
+    size_t trace_j = num_user_bins - 1;
+
+    // size_t max_id{};
+    size_t max_size{};
+
+    size_t bin_id{};
+
+    while (trace_j > 0)
+    {
+        size_t next_i = trace[trace_i][trace_j];
+        size_t const number_of_bins = (trace_i - next_i);
+        size_t const cardinality = cardinalities[positions[trace_j]];
+        size_t const corrected_cardinality = static_cast<size_t>(cardinality * fpr_correction[number_of_bins]);
+        size_t const cardinality_per_bin = seqan::hibf::divide_and_ceil(corrected_cardinality, number_of_bins);
+
+        if (cardinality_per_bin > max_size)
+        {
+            // max_id = bin_id;
+            max_size = cardinality_per_bin;
+        }
+
+        for (size_t splits{0}; splits < number_of_bins; ++splits)
+        {
+            partitions[bin_id].push_back(positions[trace_j]);
+            ++bin_id;
+        }
+
+        trace_i = trace[trace_i][trace_j];
+        --trace_j;
+    }
+    ++trace_i; // because we want the length not the index. Now trace_i == number_of_bins
+    size_t const cardinality = cardinalities[positions[0]];
+    size_t const corrected_cardinality = static_cast<size_t>(cardinality * fpr_correction[trace_i]);
+    // NOLINTNEXTLINE(clang-analyzer-core.DivideZero)
+    size_t const cardinality_per_bin = seqan::hibf::divide_and_ceil(corrected_cardinality, trace_i);
+
+    if (cardinality_per_bin > max_size)
+    {
+        // max_id = bin_id;
+        max_size = cardinality_per_bin;
+    }
+
+    for (size_t splits{0}; splits < trace_i; ++splits)
+    {
+        partitions[bin_id].push_back(positions[0]);
+        ++bin_id;
+    }
+
+    return {number_of_split_technical_bins, max_size};
+}
+
 void partition_user_bins(chopper::configuration const & config,
                          std::vector<size_t> const & positions,
                          std::vector<size_t> const & cardinalities,
@@ -1264,126 +1546,34 @@ for (size_t i = 0; i < clusters.size(); ++i)
     }
     else if (config.partitioning_approach == partitioning_scheme::lsh_sim)
     {
-        // determine split bins
-        size_t const split_threshold = seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
-        size_t idx{0};
-        while (cardinalities[sorted_positions[idx]] > 2 * split_threshold)
-            ++idx;
-        size_t const number_of_remaining_tbs = split_bins(config, sorted_positions, cardinalities, partitions, sum_of_cardinalities, idx);
-        std::vector<size_t> sorted_positions2(sorted_positions.begin() + idx, sorted_positions.end());
+        // determine number of split bins
 
-        uint8_t const sketch_bits{config.hibf_config.sketch_bits};
-//std::cout << "LSH partitioning into " << config.number_of_partitions << std::endl;
-        std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(number_of_remaining_tbs,
-                                                                         seqan::hibf::sketch::hyperloglog(sketch_bits));
+        size_t const split_threshold = seqan::hibf::divide_and_ceil(joint_estimate, config.number_of_partitions);
+        auto const [idx, number_of_potential_split_bins] = find_bins_to_be_split(sorted_positions, cardinalities, split_threshold, config.number_of_partitions - 1);
+        auto const [number_of_split_bins, max_split_size] = determine_split_bins(config, sorted_positions, cardinalities, number_of_potential_split_bins, idx, partitions);
+        size_t const number_of_merged_tbs = config.number_of_partitions - number_of_split_bins;
+        std::vector<size_t> const sorted_positions2(sorted_positions.begin() + idx, sorted_positions.end());
 
-        size_t corrected_estimate_per_part = estimate_per_part * 1.5;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
-        size_t original_estimate_per_part = estimate_per_part;
+        // distribute the rest to merged bins
+        double const relaxed_fpr_correction = seqan::hibf::layout::compute_relaxed_fpr_correction({.fpr = config.hibf_config.maximum_fpr, //
+                                                                                                   .relaxed_fpr = config.hibf_config.relaxed_fpr,
+                                                                                                   .hash_count = config.hibf_config.number_of_hash_functions});
+        size_t const corrected_max_split_size = max_split_size / relaxed_fpr_correction;
+        size_t const max_merged_size = lsh_sim_approach(config, sorted_positions2, cardinalities, sketches, minHash_sketches, partitions, number_of_merged_tbs, std::max(corrected_max_split_size, split_threshold), sum_of_cardinalities);
 
-        std::vector<size_t> max_partition_cardinality(number_of_remaining_tbs, 0u);
-        std::vector<size_t> min_partition_cardinality(number_of_remaining_tbs, std::numeric_limits<size_t>::max());
-
-        // initial partitioning using locality sensitive hashing (LSH)
-        config.lsh_algorithm_timer.start();
-        std::vector<Cluster> clusters = very_similar_LSH_partitioning(minHash_sketches, sorted_positions2, cardinalities, sketches, original_estimate_per_part, config);
-        post_process_clusters(clusters, cardinalities, config);
-        config.lsh_algorithm_timer.stop();
-
-std::ofstream ofs{"/tmp/final.clusters"};
-for (size_t i = 0; i < clusters.size(); ++i)
-{
-    seqan::hibf::sketch::hyperloglog sketch(config.hibf_config.sketch_bits);
-    for (size_t j = 0; j < clusters[i].size(); ++j)
-    {
-        sketch.merge(sketches[clusters[i].contained_user_bins()[j]]);
-    }
-    ofs << i << ":" << sketch.estimate() << ":" << clusters[i].size() << std::endl;
-}
-
-        // initialise partitions with the first p largest clusters (post_processing sorts by size)
-        size_t cidx{0}; // current cluster index
-        for (size_t p = 0; p < number_of_remaining_tbs; ++p)
+        if (max_merged_size * relaxed_fpr_correction > max_split_size) // more merged bins needed
         {
-            assert(!clusters[cidx].empty());
-            auto const & cluster = clusters[cidx].contained_user_bins();
-            bool split_cluster = false;
+            partitions.clear();
+            partitions.resize(config.number_of_partitions);
+            size_t const new_split_threshold = (split_threshold + max_merged_size * relaxed_fpr_correction) / 2;
+            auto const [new_idx, new_number_of_potential_split_bins] = find_bins_to_be_split(sorted_positions, cardinalities, new_split_threshold, config.number_of_partitions - 1);
+            auto const [new_number_of_split_bins, new_max_split_size] = determine_split_bins(config, sorted_positions, cardinalities, new_number_of_potential_split_bins, new_idx, partitions);
+            size_t const new_number_of_merged_tbs = config.number_of_partitions - new_number_of_split_bins;
+            std::vector<size_t> new_sorted_positions2(sorted_positions.begin() + new_idx, sorted_positions.end());
 
-            if (cluster.size() > config.hibf_config.tmax)
-            {
-                size_t card{0};
-                for (size_t uidx = 0; uidx < cluster.size(); ++uidx)
-                    card += cardinalities[cluster[uidx]];
-
-                if (card > 0.05 * sum_of_cardinalities / config.hibf_config.tmax)
-                    split_cluster = true;
-            }
-
-            size_t const end = (split_cluster) ? cluster.size() : std::min(cluster.size(), config.hibf_config.tmax);
-            for (size_t uidx = 0; uidx < end; ++uidx)
-            {
-                size_t const user_bin_idx = cluster[uidx];
-                // if a single cluster already exceeds the cardinality_per_part,
-                // then the remaining user bins of the cluster must spill over into the next partition
-                if ((uidx != 0 && (uidx % config.hibf_config.tmax == 0)) || partition_sketches[p].estimate() > corrected_estimate_per_part)
-                {
-                    ++p;
-                    // p_has_been_incremented = true;
-                    assert(p < number_of_remaining_tbs);
-                }
-
-                partition_sketches[p].merge(sketches[user_bin_idx]);
-                partitions[p].push_back(user_bin_idx);
-                max_partition_cardinality[p] = std::max(max_partition_cardinality[p], cardinalities[user_bin_idx]);
-                min_partition_cardinality[p] = std::min(min_partition_cardinality[p], cardinalities[user_bin_idx]);
-            }
-
-            ++cidx;
-        }
-
-        std::vector<std::vector<size_t>> remaining_clusters{};
-
-        for (size_t i = 0; i < clusters.size(); ++i)
-        {
-            if (clusters[i].empty())
-                break;
-
-            auto const & cluster = clusters[i].contained_user_bins();
-
-            // if i < cidx the first cluster was already used in initialising above
-            if (i < cidx)
-            {
-                bool split_cluster = false;
-                if (cluster.size() > config.hibf_config.tmax)
-                {
-                    size_t card{0};
-                    for (size_t uidx = 0; uidx < cluster.size(); ++uidx)
-                        card += cardinalities[cluster[uidx]];
-
-                    if (card > 0.05 * sum_of_cardinalities / config.hibf_config.tmax)
-                        split_cluster = true;
-                }
-
-                if (cluster.size() > config.hibf_config.tmax && !split_cluster) // then only the first tmax UBs have been consumed
-                {
-                    std::vector<size_t> remainder(cluster.begin() + config.hibf_config.tmax, cluster.end());
-                    remaining_clusters.insert(remaining_clusters.end(), remainder);
-                }
-                // otherwise ignore cluster
-            }
-            else
-            {
-                remaining_clusters.insert(remaining_clusters.end(), cluster);
-            }
-        }
-
-        // assign the rest by similarity
-        for (size_t ridx = 0; ridx < remaining_clusters.size(); ++ridx)
-        {
-            auto const & cluster = remaining_clusters[ridx];
-
-            config.search_partition_algorithm_timer.start();
-            find_best_partition(config, number_of_remaining_tbs, corrected_estimate_per_part, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
-            config.search_partition_algorithm_timer.start();
+            // distribute the rest to merged bins
+            size_t const new_corrected_max_split_size = new_max_split_size / relaxed_fpr_correction;
+            lsh_sim_approach(config, new_sorted_positions2, cardinalities, sketches, minHash_sketches, partitions, new_number_of_merged_tbs, std::max(new_corrected_max_split_size, new_split_threshold), sum_of_cardinalities);
         }
     }
 
