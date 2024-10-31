@@ -1108,7 +1108,7 @@ std::pair<size_t, size_t> determine_split_bins(chopper::configuration const & co
 
         for (size_t splits{0}; splits < number_of_bins; ++splits)
         {
-            partitions[bin_id].push_back(positions[trace_j]);
+            partitions[partitions.size() - 1 - bin_id].push_back(positions[trace_j]);
             ++bin_id;
         }
 
@@ -1129,7 +1129,7 @@ std::pair<size_t, size_t> determine_split_bins(chopper::configuration const & co
 
     for (size_t splits{0}; splits < trace_i; ++splits)
     {
-        partitions[bin_id].push_back(positions[0]);
+        partitions[partitions.size() - 1 - bin_id].push_back(positions[0]);
         ++bin_id;
     }
 
