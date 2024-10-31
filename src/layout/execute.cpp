@@ -250,7 +250,7 @@ std::vector<Cluster> very_similar_LSH_partitioning(std::vector<seqan::hibf::sket
     assert(!minHash_sketches[0].table[0].empty());
 
     size_t const number_of_user_bins{positions.size()};
-    assert(number_of_user_bins == minHash_sketches.size());
+    assert(number_of_user_bins <= minHash_sketches.size());
     size_t const number_of_max_minHash_sketches{3};                     // LSH ADD+OR parameter b
     size_t const minHash_sketche_size{minHash_sketches[0].table[0].size()};   // LSH ADD+OR parameter r
     seqan::hibf::sketch::hyperloglog const empty_sketch{config.hibf_config.sketch_bits};
