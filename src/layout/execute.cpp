@@ -1579,7 +1579,7 @@ for (size_t i = 0; i < clusters.size(); ++i)
 
     // sanity check:
     size_t sum{0};
-    size_t last_index{sketches.size()}; // non existing user bin idx
+    size_t last_index{positions.size()}; // non existing user bin idx
     for (auto const & p : partitions)
     {
         if (p.size() == 1)
@@ -1596,14 +1596,14 @@ for (size_t i = 0; i < clusters.size(); ++i)
         }
     }
 
-    if (sum != sketches.size())
+    if (sum != positions.size())
     {
         std::string str{"Not all user bins have been assigned to the "};
         str += std::to_string(partitions.size());
         str += " partitions! (";
         str += std::to_string(sum);
         str += "/";
-        str += std::to_string(sketches.size());
+        str += std::to_string(positions.size());
         str += ")\n";
         for (auto const & p : partitions)
         {
