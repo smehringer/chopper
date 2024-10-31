@@ -1733,17 +1733,17 @@ void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
             else // single or split bin
             {
                 current_user_bin.storage_TB_id = partition_idx;
-                size_t num_tbs{1};
+                current_user_bin.number_of_technical_bins = 1; // initialise to 1
+
                 while (partition_idx + 1 < partitions.size() &&
                        partitions[partition_idx].size() == 1 &&
                        partitions[partition_idx + 1].size() == 1 &&
                        partitions[partition_idx][0] == partitions[partition_idx + 1][0])
                 {
-                    ++num_tbs;
+                    ++current_user_bin.number_of_technical_bins;
                     ++partition_idx;
                 }
 
-                current_user_bin.number_of_technical_bins = partition_idx;
             }
         }
     }
