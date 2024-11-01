@@ -1235,42 +1235,7 @@ std::cout << "number_of_remaining_tbs: " << number_of_remaining_tbs << " idx:" <
     }
     else if (config.partitioning_approach == partitioning_scheme::folded)
     {
-        size_t const estimate_per_part_halved = seqan::hibf::divide_and_ceil(estimate_per_part, 2u);
 
-        size_t current_tb_size_threshold = estimate_per_part_halved * (1.0 + static_cast<double>(joint_estimate)/sum_of_cardinalities);
-
-        std::vector<size_t> const parts = [&config]()
-        {
-            size_t const len{config.number_of_partitions};
-            std::vector<size_t> result(len * 2);
-            std::iota(result.begin(), result.begin() + len, 0);
-            std::copy(result.rbegin() + len, result.rend(), result.begin() + len);
-            return result;
-        }();
-
-        seqan::hibf::sketch::hyperloglog current_sketch{config.hibf_config.sketch_bits};
-        size_t current_part{0};
-        std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(config.number_of_partitions, current_sketch);
-
-        size_t idx{0};
-        for (;idx < sorted_positions.size(); ++idx)
-        {
-            partitions[parts[current_part]].push_back(sorted_positions[idx]);
-            current_sketch.merge(sketches[sorted_positions[idx]]);
-
-            if (current_sketch.estimate() >= current_tb_size_threshold)
-            {
-                partition_sketches[parts[current_part]].merge(current_sketch);
-                current_sketch = seqan::hibf::sketch::hyperloglog{config.hibf_config.sketch_bits};
-                ++current_part;
-
-                if (current_part >= parts.size())
-                {
-                    current_tb_size_threshold *= 1 + static_cast<double>(idx) / sorted_positions.size();
-                    current_part = 0; // fill up from the start agagin as the threshold increased
-                }
-            }
-        }
     }
     else if (config.partitioning_approach == partitioning_scheme::weighted_fold)
     {
