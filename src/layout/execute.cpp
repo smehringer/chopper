@@ -968,7 +968,7 @@ ofs << i << ":" << sketch.estimate() << ":" << clusters[i].size() << std::endl;
         ++cidx;
     }
 
-    for (size_t i = 0; i < clusters.size(); ++i)
+    for (size_t i = cidx; i < clusters.size(); ++i)
     {
         if (clusters[i].empty())
             break;
@@ -986,6 +986,10 @@ ofs << i << ":" << sketch.estimate() << ":" << clusters[i].size() << std::endl;
         find_best_partition(config, number_of_remaining_tbs, max_size, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
         config.search_partition_algorithm_timer.start();
     }
+
+    // compute actual max size
+    for (auto const & sketch : partition_sketches)
+        max_size = std::max(max_size, (size_t)sketch.estimate());
 
     return max_size;
 }
@@ -1208,7 +1212,7 @@ void partition_user_bins(chopper::configuration const & config,
 
             if (current_sum >= estimated_tb_size && current_part < number_of_merged_tbs)
             {
-                max_merged_size = std::max(current_sum, estimated_tb_size);
+                max_merged_size = std::max(current_sum, max_merged_size);
                 ++current_part;
                 current_sum = 0;
                 assert(current_part < number_of_merged_tbs);
@@ -1217,7 +1221,7 @@ void partition_user_bins(chopper::configuration const & config,
     }
     else if (config.partitioning_approach == partitioning_scheme::sorted)
     {
-        size_t current_tb_size_threshold = estimate_per_part;
+        size_t current_tb_size_threshold = split_threshold;
 
         size_t current_part{0};
         seqan::hibf::sketch::hyperloglog current_sketch{config.hibf_config.sketch_bits};
@@ -1231,6 +1235,7 @@ void partition_user_bins(chopper::configuration const & config,
 
             if (current_sketch.estimate() >= current_tb_size_threshold)
             {
+                max_merged_size = std::max((size_t)current_sketch.estimate(), max_merged_size);
                 partition_sketches[current_part] = current_sketch;
                 current_sketch = seqan::hibf::sketch::hyperloglog{config.hibf_config.sketch_bits};
                 ++current_part;
@@ -1332,7 +1337,8 @@ void partition_user_bins(chopper::configuration const & config,
         std::vector<seqan::hibf::sketch::hyperloglog> partition_sketches(number_of_merged_tbs,
                                                                          seqan::hibf::sketch::hyperloglog(sketch_bits));
 
-        size_t corrected_estimate_per_part = estimate_per_part * 1.5;// * (1.0 + 2 * static_cast<double>(joint_estimate)/sum_of_cardinalities);
+        size_t const corrected_max_split_size = max_split_size / relaxed_fpr_correction;
+        size_t merged_threshold = std::max(corrected_max_split_size, split_threshold);
 
         size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(number_of_remaining_ubs, number_of_merged_tbs);
         size_t const block_size =
@@ -1387,7 +1393,7 @@ void partition_user_bins(chopper::configuration const & config,
 
             find_best_partition(config,
                                 number_of_merged_tbs,
-                                corrected_estimate_per_part,
+                                merged_threshold,
                                 {sorted_positions[i]},
                                 cardinalities,
                                 sketches,
@@ -1396,6 +1402,10 @@ void partition_user_bins(chopper::configuration const & config,
                                 max_partition_cardinality,
                                 min_partition_cardinality);
         }
+
+        // compute actual max size
+        for (auto const & sketch : partition_sketches)
+            max_merged_size = std::max(max_merged_size, (size_t)sketch.estimate());
     }
     else if (config.partitioning_approach == partitioning_scheme::lsh)
     {
@@ -1515,26 +1525,32 @@ for (size_t i = 0; i < clusters.size(); ++i)
     parition_split_bins();
     partitions_merged_bins();
 
-    if (number_of_split_tbs != 0 &&
-        max_merged_size * relaxed_fpr_correction > max_split_size) // more merged bins needed
-    {
-        // refine threshold
-std::cout << "Reconfiguring splitting... from:" << split_threshold;
-        split_threshold = (split_threshold + max_merged_size * relaxed_fpr_correction) / 2;
-std::cout << "to:" << split_threshold << std::endl;
+    // int64_t const difference = static_cast<int64_t>(max_merged_size * relaxed_fpr_correction) - static_cast<int64_t>(max_split_size);
+    // int64_t const difference_halved = difference / 2;
 
-        // reset result
-        partitions.clear();
-        partitions.resize(config.number_of_partitions);
-        idx = 0;
-        number_of_split_tbs = 0;
-        number_of_merged_tbs = config.number_of_partitions;
-        max_split_size = 0;
-        max_merged_size = 0;
+// std::cout << "number_of_split_tbs:" << number_of_split_tbs << " difference:" << difference << std::endl;
+// std::cout << "Reconfiguring threshold.  from:" << split_threshold;
 
-        parition_split_bins();
-        partitions_merged_bins();
-    }
+//     if (number_of_split_tbs == 0)
+//         split_threshold = (split_threshold + max_merged_size * relaxed_fpr_correction) / 2; // increase threshold
+//     else if (difference > 0) // need more merged bins -> increase threshold
+//         split_threshold = static_cast<double>(split_threshold) * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
+//     else // need more split bins -> decrease threshold
+//         split_threshold = static_cast<double>(split_threshold) * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
+
+// std::cout << " to:" << split_threshold << std::endl;
+
+//     // reset result
+//     partitions.clear();
+//     partitions.resize(config.number_of_partitions);
+//     idx = 0;
+//     number_of_split_tbs = 0;
+//     number_of_merged_tbs = config.number_of_partitions;
+//     max_split_size = 0;
+//     max_merged_size = 0;
+
+//     parition_split_bins();
+//     partitions_merged_bins();
 
     // sanity check:
     size_t sum{0};
