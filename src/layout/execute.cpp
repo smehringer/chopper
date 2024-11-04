@@ -1776,7 +1776,7 @@ void fast_layout_recursion(chopper::configuration const & config,
 
         if (do_I_need_a_fast_layout(config, partition, cardinalities))
         {
-            fast_layout_recursion(config, partition, cardinalities, sketches, minHash_sketches, hibf_layout, previous); // recurse fast_layout
+            fast_layout_recursion(config, partition, cardinalities, sketches, minHash_sketches, hibf_layout, new_previous); // recurse fast_layout
         }
         else
         {
