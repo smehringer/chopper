@@ -977,17 +977,18 @@ ofs << i << ":" << sketch.estimate() << ":" << clusters[i].size() << std::endl;
     }
 
     // assign the rest by similarity
-    size_t max_size{technical_bin_size_threshold};
+    size_t merged_threshold{technical_bin_size_threshold};
     for (size_t ridx = 0; ridx < remaining_clusters.size(); ++ridx)
     {
         auto const & cluster = remaining_clusters[ridx];
 
         config.search_partition_algorithm_timer.start();
-        find_best_partition(config, number_of_remaining_tbs, max_size, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
+        find_best_partition(config, number_of_remaining_tbs, merged_threshold, cluster, cardinalities, sketches, partitions, partition_sketches, max_partition_cardinality, min_partition_cardinality);
         config.search_partition_algorithm_timer.start();
     }
 
     // compute actual max size
+    size_t max_size{0};
     for (auto const & sketch : partition_sketches)
         max_size = std::max(max_size, (size_t)sketch.estimate());
 
@@ -1240,7 +1241,7 @@ void partition_user_bins(chopper::configuration const & config,
                 current_sketch = seqan::hibf::sketch::hyperloglog{config.hibf_config.sketch_bits};
                 ++current_part;
 
-                if (current_part >= config.number_of_partitions)
+                if (current_part >= number_of_merged_tbs)
                 {
                     current_tb_size_threshold *= 1 + static_cast<double>(idx) / sorted_positions.size();
                     current_part = 0; // fill up from the start agagin as the threshold increased
@@ -1525,14 +1526,13 @@ for (size_t i = 0; i < clusters.size(); ++i)
     parition_split_bins();
     partitions_merged_bins();
 
-    // int64_t const difference = static_cast<int64_t>(max_merged_size * relaxed_fpr_correction) - static_cast<int64_t>(max_split_size);
-    // int64_t const difference_halved = difference / 2;
+//     int64_t const difference = static_cast<int64_t>(max_merged_size * relaxed_fpr_correction) - static_cast<int64_t>(max_split_size);
 
 // std::cout << "number_of_split_tbs:" << number_of_split_tbs << " difference:" << difference << std::endl;
 // std::cout << "Reconfiguring threshold.  from:" << split_threshold;
 
 //     if (number_of_split_tbs == 0)
-//         split_threshold = (split_threshold + max_merged_size * relaxed_fpr_correction) / 2; // increase threshold
+//         split_threshold = (split_threshold + max_merged_size) / 2; // increase threshold
 //     else if (difference > 0) // need more merged bins -> increase threshold
 //         split_threshold = static_cast<double>(split_threshold) * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
 //     else // need more split bins -> decrease threshold
@@ -1653,75 +1653,83 @@ bool do_I_need_a_fast_layout(chopper::configuration const & config, std::vector<
     return false;
 }
 
-size_t determine_max_bin(std::vector<std::vector<size_t>> const & positions,
-                         std::vector<seqan::hibf::sketch::hyperloglog> const & sketches)
-{
-    size_t max_bin_id{0};
-    size_t max_size{0};
-
-    for (size_t i = 0; i < positions.size(); ++i)
-    {
-        if (positions[i].empty()) // should only happen on really small data sets with edge cases
-            continue;
-
-        seqan::hibf::sketch::hyperloglog tb{sketches[positions[i][0]]}; // init
-        for (auto const pos : positions[i])
-            tb.merge(sketches[pos]);
-
-        if (tb.estimate() > max_size)
-        {
-            max_bin_id = i;
-            max_size = tb.estimate();
-        }
-    }
-
-    return max_bin_id;
-}
-
-void add_level_to_layout(seqan::hibf::layout::layout & hibf_layout,
+void add_level_to_layout(chopper::configuration const & config,
+                         seqan::hibf::layout::layout & hibf_layout,
                          std::vector<std::vector<size_t>> const & partitions,
                          std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
                          std::vector<size_t> const & previous)
 {
-    hibf_layout.max_bins.emplace_back(previous, determine_max_bin(partitions, sketches)); // add lower level meta information
+    size_t max_bin_id{0};
+    size_t max_size{0};
+
+    auto const split_fpr_correction = seqan::hibf::layout::compute_fpr_correction({.fpr = config.hibf_config.maximum_fpr, //
+                                                                             .hash_count = config.hibf_config.number_of_hash_functions,
+                                                                             .t_max = partitions.size()});
+
+    double const relaxed_fpr_correction = seqan::hibf::layout::compute_relaxed_fpr_correction({.fpr = config.hibf_config.maximum_fpr, //
+                                                                                                .relaxed_fpr = config.hibf_config.relaxed_fpr,
+                                                                                                .hash_count = config.hibf_config.number_of_hash_functions});
 
     // we assume here that the user bins have been sorted by user bin id such that pos = idx
     for (size_t partition_idx{0}; partition_idx < partitions.size(); ++partition_idx)
     {
         auto const & partition = partitions[partition_idx];
-        for (size_t const user_bin_id : partition)
+
+        if (partition.size() > 1) // merged bin
         {
-            assert(hibf_layout.user_bins[user_bin_id].idx == user_bin_id);
-            auto & current_user_bin = hibf_layout.user_bins[user_bin_id];
+            seqan::hibf::sketch::hyperloglog current_sketch{sketches[0]}; // ensure same bit size
+            current_sketch.reset();
 
-            // update
-            assert(previous == current_user_bin.previous_TB_indices);
-
-            if (partition.size() > 1) // merged bin
+            for (size_t const user_bin_id : partition)
             {
+                assert(hibf_layout.user_bins[user_bin_id].idx == user_bin_id);
+                auto & current_user_bin = hibf_layout.user_bins[user_bin_id];
+
+                // update
+                assert(previous == current_user_bin.previous_TB_indices);
                 current_user_bin.previous_TB_indices.push_back(partition_idx);
+                current_sketch.merge(sketches[user_bin_id]);
             }
-            else if (partition.size() == 0) // should not happen.. dge case?
+
+            // update max_bin_id, max_size
+            size_t const current_size = current_sketch.estimate() * relaxed_fpr_correction;
+            if (current_size > max_size)
             {
-                continue;
+                max_bin_id = partition_idx;
+                max_size = current_size;
             }
-            else // single or split bin
+        }
+        else if (partition.size() == 0) // should not happen.. dge case?
+        {
+            continue;
+        }
+        else // single or split bin (partition.size() == 1)
+        {
+            auto & current_user_bin = hibf_layout.user_bins[partitions[partition_idx][0]];
+            assert(current_user_bin.idx == partitions[partition_idx][0]);
+            current_user_bin.storage_TB_id = partition_idx;
+            current_user_bin.number_of_technical_bins = 1; // initialise to 1
+
+            while (partition_idx + 1 < partitions.size() &&
+                    partitions[partition_idx].size() == 1 &&
+                    partitions[partition_idx + 1].size() == 1 &&
+                    partitions[partition_idx][0] == partitions[partition_idx + 1][0])
             {
-                current_user_bin.storage_TB_id = partition_idx;
-                current_user_bin.number_of_technical_bins = 1; // initialise to 1
+                ++current_user_bin.number_of_technical_bins;
+                ++partition_idx;
+            }
 
-                while (partition_idx + 1 < partitions.size() &&
-                       partitions[partition_idx].size() == 1 &&
-                       partitions[partition_idx + 1].size() == 1 &&
-                       partitions[partition_idx][0] == partitions[partition_idx + 1][0])
-                {
-                    ++current_user_bin.number_of_technical_bins;
-                    ++partition_idx;
-                }
-
+            // update max_bin_id, max_size
+            size_t const current_size = sketches[current_user_bin.idx].estimate() * split_fpr_correction[current_user_bin.number_of_technical_bins];
+            if (current_size > max_size)
+            {
+                max_bin_id = current_user_bin.storage_TB_id;
+                max_size = current_size;
             }
         }
     }
+
+    hibf_layout.max_bins.emplace_back(previous, max_bin_id); // add lower level meta information
 }
 
 void update_layout_from_child_layout(seqan::hibf::layout::layout & child_layout,
@@ -1763,7 +1771,7 @@ void fast_layout_recursion(chopper::configuration const & config,
 
     #pragma omp critical
     {
-        add_level_to_layout(hibf_layout, tmax_partitions, sketches, previous);
+        add_level_to_layout(config, hibf_layout, tmax_partitions, sketches, previous);
     }
 
     for (size_t partition_idx = 0; partition_idx < tmax_partitions.size(); ++partition_idx)
@@ -1807,8 +1815,16 @@ void fast_layout(chopper::configuration const & config,
     partition_user_bins(config_copy, positions, cardinalities, sketches, minHash_sketches, tmax_partitions);
     config.intital_partition_timer.stop();
 
-    hibf_layout.top_level_max_bin_id = determine_max_bin(tmax_partitions, sketches);
+    auto const split_fpr_correction = seqan::hibf::layout::compute_fpr_correction({.fpr = config.hibf_config.maximum_fpr, //
+                                                                             .hash_count = config.hibf_config.number_of_hash_functions,
+                                                                             .t_max = config.hibf_config.tmax});
 
+    double const relaxed_fpr_correction = seqan::hibf::layout::compute_relaxed_fpr_correction({.fpr = config.hibf_config.maximum_fpr, //
+                                                                                                .relaxed_fpr = config.hibf_config.relaxed_fpr,
+                                                                                                .hash_count = config.hibf_config.number_of_hash_functions});
+
+    size_t max_bin_id{0};
+    size_t max_size{0};
     hibf_layout.user_bins.resize(config_copy.hibf_config.number_of_user_bins);
 
     // initialise user bins in layout
@@ -1816,12 +1832,24 @@ void fast_layout(chopper::configuration const & config,
     {
         if (tmax_partitions[partition_idx].size() > 1) // merged bin
         {
+            seqan::hibf::sketch::hyperloglog current_sketch{sketches[0]}; // ensure same bit size
+            current_sketch.reset();
+
             for (size_t const user_bin_id : tmax_partitions[partition_idx])
             {
                 hibf_layout.user_bins[user_bin_id] = {.previous_TB_indices = {partition_idx},
                                                       .storage_TB_id = 0 /*not determiend yet*/,
                                                       .number_of_technical_bins = 1 /*not determiend yet*/,
                                                       .idx = user_bin_id};
+                current_sketch.merge(sketches[user_bin_id]);
+            }
+
+            // update max_bin_id, max_size
+            size_t const current_size = current_sketch.estimate() * relaxed_fpr_correction;
+            if (current_size > max_size)
+            {
+                max_bin_id = partition_idx;
+                max_size = current_size;
             }
         }
         else if (tmax_partitions[partition_idx].size() == 0) // should not happen. Edge case?
@@ -1845,8 +1873,18 @@ void fast_layout(chopper::configuration const & config,
                 ++hibf_layout.user_bins[user_bin_id].number_of_technical_bins;
                 ++partition_idx;
             }
+
+            // update max_bin_id, max_size
+            size_t const current_size = sketches[user_bin_id].estimate() * split_fpr_correction[hibf_layout.user_bins[user_bin_id].number_of_technical_bins];
+            if (current_size > max_size)
+            {
+                max_bin_id = hibf_layout.user_bins[user_bin_id].storage_TB_id;
+                max_size = current_size;
+            }
         }
     }
+
+    hibf_layout.top_level_max_bin_id = max_bin_id;
 
     config.small_layouts_timer.start();
     #pragma omp parallel
