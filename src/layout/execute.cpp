@@ -858,22 +858,33 @@ std::cout << "number_of_split_tbs: " << number_of_split_tbs
 
 std::pair<size_t, size_t> find_bins_to_be_split(std::vector<size_t> const & sorted_positions,
                             std::vector<size_t> const & cardinalities,
-                            size_t const threshold,
+                            size_t threshold,
                             size_t const max_bins)
 {
     size_t idx{0};
     size_t sum{0};
+    size_t number_of_split_bins = max_bins + 1; // initialise to something bigger to trigger while loop below
 
-    while (idx < sorted_positions.size() && cardinalities[sorted_positions[idx]] > threshold)
+    auto find_idx_and_sum = [&]()
     {
-        sum += cardinalities[sorted_positions[idx]];
-        ++idx;
+        while (idx < sorted_positions.size() && cardinalities[sorted_positions[idx]] > threshold)
+        {
+            sum += cardinalities[sorted_positions[idx]];
+            ++idx;
+        }
+    };
+
+    while (number_of_split_bins > max_bins)
+    {
+        idx = 0;
+        sum = 0;
+        find_idx_and_sum();
+        number_of_split_bins = sum / threshold;
+        // max(1.01, ...) because a tie would end in an endless loop.
+        threshold = static_cast<double>(threshold) * std::max(1.01, static_cast<double>(sum) / (threshold * max_bins));
     }
 
-    // It can happen that the user bins are so big and similar, that the threshold is bad and there are more splits
-    // than technical bins. Clamp the number of split bins to a a maximum of tmax - 1 to allow for one merged bin.
-    size_t const number_of_split_bins = std::min(sum / threshold, max_bins);
-    // This might also mean that there are more user bins (position of idx) than available split bins.
+    // Maybe there are more user bins (position of idx) than available split bins.
     // Thus, clamp the number of user bins to split to maximally the number_of_split_bins
     idx = std::min(idx, number_of_split_bins);
 
@@ -1341,7 +1352,7 @@ void partition_user_bins(chopper::configuration const & config,
         size_t const corrected_max_split_size = max_split_size / relaxed_fpr_correction;
         size_t merged_threshold = std::max(corrected_max_split_size, split_threshold);
 
-        size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(number_of_remaining_ubs, number_of_merged_tbs);
+        size_t const u_bins_per_part = number_of_remaining_ubs / number_of_merged_tbs; // round down
         size_t const block_size =
             std::min(u_bins_per_part,
                      chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
@@ -1526,31 +1537,31 @@ for (size_t i = 0; i < clusters.size(); ++i)
     parition_split_bins();
     partitions_merged_bins();
 
-//     int64_t const difference = static_cast<int64_t>(max_merged_size * relaxed_fpr_correction) - static_cast<int64_t>(max_split_size);
+    int64_t const difference = static_cast<int64_t>(max_merged_size * relaxed_fpr_correction) - static_cast<int64_t>(max_split_size);
 
-// std::cout << "number_of_split_tbs:" << number_of_split_tbs << " difference:" << difference << std::endl;
-// std::cout << "Reconfiguring threshold.  from:" << split_threshold;
+std::cout << "number_of_split_tbs:" << number_of_split_tbs << " difference:" << difference << std::endl;
+std::cout << "Reconfiguring threshold.  from:" << split_threshold;
 
-//     if (number_of_split_tbs == 0)
-//         split_threshold = (split_threshold + max_merged_size) / 2; // increase threshold
-//     else if (difference > 0) // need more merged bins -> increase threshold
-//         split_threshold = static_cast<double>(split_threshold) * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
-//     else // need more split bins -> decrease threshold
-//         split_threshold = static_cast<double>(split_threshold) * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
+    if (number_of_split_tbs == 0)
+        split_threshold = (split_threshold + max_merged_size) / 2; // increase threshold
+    else if (difference > 0) // need more merged bins -> increase threshold
+        split_threshold = static_cast<double>(split_threshold) * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
+    else // need more split bins -> decrease threshold
+        split_threshold = static_cast<double>(split_threshold) * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
 
-// std::cout << " to:" << split_threshold << std::endl;
+std::cout << " to:" << split_threshold << std::endl;
 
-//     // reset result
-//     partitions.clear();
-//     partitions.resize(config.number_of_partitions);
-//     idx = 0;
-//     number_of_split_tbs = 0;
-//     number_of_merged_tbs = config.number_of_partitions;
-//     max_split_size = 0;
-//     max_merged_size = 0;
+    // reset result
+    partitions.clear();
+    partitions.resize(config.number_of_partitions);
+    idx = 0;
+    number_of_split_tbs = 0;
+    number_of_merged_tbs = config.number_of_partitions;
+    max_split_size = 0;
+    max_merged_size = 0;
 
-//     parition_split_bins();
-//     partitions_merged_bins();
+    parition_split_bins();
+    partitions_merged_bins();
 
     // sanity check:
     size_t sum{0};
