@@ -252,9 +252,11 @@ std::vector<Cluster> very_similar_LSH_partitioning(std::vector<seqan::hibf::sket
     size_t const number_of_user_bins{positions.size()};
     assert(number_of_user_bins <= minHash_sketches.size());
     size_t const number_of_max_minHash_sketches{3};                     // LSH ADD+OR parameter b
-    size_t const minHash_sketche_size{minHash_sketches[0].table[0].size()};   // LSH ADD+OR parameter r
+    // size_t const minHash_sketche_size{minHash_sketches[0].table[0].size()};   // LSH ADD+OR parameter r
+    size_t const minHash_sketche_size{5};   // LSH ADD+OR parameter r
     seqan::hibf::sketch::hyperloglog const empty_sketch{config.hibf_config.sketch_bits};
-
+std::cout << "sketch size available: " << minHash_sketches[0].table[0].size() << std::endl;
+std::cout << "sketch size used here: " << minHash_sketche_size << std::endl;
     // initialise clusters with a signle user bin per cluster.
     // clusters are either
     // 1) of size 1; containing an id != position where the id points to the cluster it has been moved to
