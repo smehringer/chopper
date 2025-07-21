@@ -14,4 +14,7 @@ endif ()
 add_executable (measure_hyperloglog EXCLUDE_FROM_ALL measure_hyperloglog.cpp)
 target_link_libraries (measure_hyperloglog PUBLIC chopper::chopper)
 
+add_executable (compute_size_estimate EXCLUDE_FROM_ALL compute_size_estimate.cpp)
+target_link_libraries (compute_size_estimate PUBLIC chopper::chopper)
+
 add_subdirectory (display_layout)
