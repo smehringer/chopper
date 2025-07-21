@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 namespace chopper
 {
 
