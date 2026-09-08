@@ -709,8 +709,10 @@ void partition_user_bins(chopper::configuration const & config,
             * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
     else // need more split bins -> decrease threshold
         split_threshold =
-            static_cast<double>(split_threshold)
-            * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) / static_cast<double>(max_split_size));
+            std::max<double>(1.0,
+                static_cast<double>(split_threshold)
+                * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) /
+                static_cast<double>(max_split_size)));
 
     std::cout << " to:" << split_threshold << std::endl;
 
