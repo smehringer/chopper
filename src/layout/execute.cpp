@@ -693,7 +693,11 @@ void partition_user_bins(chopper::configuration const & config,
     };
 
     parition_split_bins();
-    partitions_merged_bins();
+
+    // All user bins can be assigned as split bins (idx == sorted_positions.size()).
+    // In that case there are no remaining bins to distribute via partitions_merged_bins.
+    if (idx < sorted_positions.size())
+        partitions_merged_bins();
 
     int64_t const difference =
         static_cast<int64_t>(max_merged_size * relaxed_fpr_correction) - static_cast<int64_t>(max_split_size);
@@ -726,7 +730,10 @@ void partition_user_bins(chopper::configuration const & config,
     max_merged_size = 0;
 
     parition_split_bins();
-    partitions_merged_bins();
+    // All user bins can be assigned as split bins (idx == sorted_positions.size()).
+    // In that case there are no remaining bins to distribute via partitions_merged_bins.
+    if (idx < sorted_positions.size())
+        partitions_merged_bins();
 
     // sanity check:
     size_t sum{0};
