@@ -1134,98 +1134,58 @@ int execute(chopper::configuration & config,
     std::vector<size_t> cardinalities;
     seqan::hibf::sketch::estimate_kmer_counts(sketches, cardinalities);
 
-    if (true) // 0 == unset == single HIBF, 1 == single HIBF
+    seqan::hibf::layout::layout hibf_layout;
+
+    if (config.determine_best_tmax)
     {
-        seqan::hibf::layout::layout hibf_layout;
-
-        if (config.determine_best_tmax)
-        {
-            hibf_layout = determine_best_number_of_technical_bins(config, cardinalities, sketches);
-        }
-        else
-        {
-            config.dp_algorithm_timer.start();
-            fast_layout(config,
-                        seqan::hibf::iota_vector(sketches.size()),
-                        cardinalities,
-                        sketches,
-                        minHash_sketches,
-                        hibf_layout);
-            config.dp_algorithm_timer.stop();
-
-            // hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config,
-            //                                                   cardinalities,
-            //                                                   sketches,
-            //                                                   seqan::hibf::iota_vector(sketches.size()),
-            //                                                   config.union_estimation_timer,
-            //                                                   config.rearrangement_timer);
-
-            // sort records ascending by the number of bin indices (corresponds to the IBF levels)
-            // GCOVR_EXCL_START
-            std::ranges::sort(hibf_layout.max_bins,
-                              [](auto const & r, auto const & l)
-                              {
-                                  if (r.previous_TB_indices.size() == l.previous_TB_indices.size())
-                                      return std::ranges::lexicographical_compare(r.previous_TB_indices,
-                                                                                  l.previous_TB_indices);
-                                  else
-                                      return r.previous_TB_indices.size() < l.previous_TB_indices.size();
-                              });
-            // GCOVR_EXCL_STOP
-
-            if (config.output_verbose_statistics)
-            {
-                size_t dummy{};
-                chopper::layout::hibf_statistics global_stats{config, sketches, cardinalities};
-                global_stats.hibf_layout = hibf_layout;
-                global_stats.print_header_to(std::cout);
-                global_stats.print_summary_to(dummy, std::cout);
-            }
-        }
-
-        // brief Write the output to the layout file.
-        std::ofstream fout{config.output_filename};
-        chopper::layout::write_user_bins_to(filenames, fout);
-        config.write_to(fout);
-        hibf_layout.write_to(fout);
+        hibf_layout = determine_best_number_of_technical_bins(config, cardinalities, sketches);
     }
     else
     {
-        std::vector<std::vector<size_t>> positions(config.hibf_config.tmax); // asign positions for each partition
+        config.dp_algorithm_timer.start();
+        fast_layout(config,
+                    seqan::hibf::iota_vector(sketches.size()),
+                    cardinalities,
+                    sketches,
+                    minHash_sketches,
+                    hibf_layout);
+        config.dp_algorithm_timer.stop();
 
-        std::vector<size_t> ps;
-        ps.resize(cardinalities.size());
-        std::iota(ps.begin(), ps.end(), 0);
-        partition_user_bins(config, ps, cardinalities, sketches, minHash_sketches, positions);
+        // hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config,
+        //                                                   cardinalities,
+        //                                                   sketches,
+        //                                                   seqan::hibf::iota_vector(sketches.size()),
+        //                                                   config.union_estimation_timer,
+        //                                                   config.rearrangement_timer);
 
-        std::vector<seqan::hibf::layout::layout> hibf_layouts(config.hibf_config.tmax); // multiple layouts
+        // sort records ascending by the number of bin indices (corresponds to the IBF levels)
+        // GCOVR_EXCL_START
+        std::ranges::sort(hibf_layout.max_bins,
+                            [](auto const & r, auto const & l)
+                            {
+                                if (r.previous_TB_indices.size() == l.previous_TB_indices.size())
+                                    return std::ranges::lexicographical_compare(r.previous_TB_indices,
+                                                                                l.previous_TB_indices);
+                                else
+                                    return r.previous_TB_indices.size() < l.previous_TB_indices.size();
+                            });
+        // GCOVR_EXCL_STOP
 
-#pragma omp parallel for schedule(dynamic) num_threads(config.hibf_config.threads)
-        for (size_t i = 0; i < config.hibf_config.tmax; ++i)
+        if (config.output_verbose_statistics)
         {
-            // reset tmax to fit number of user bins in layout
-            auto local_hibf_config = config.hibf_config; // every thread needs to set individual tmax
-            local_hibf_config.tmax =
-                chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(positions[i].size()))));
-
-            config.dp_algorithm_timer.start();
-            hibf_layouts[i] = seqan::hibf::layout::compute_layout(local_hibf_config,
-                                                                  cardinalities,
-                                                                  sketches,
-                                                                  std::move(positions[i]),
-                                                                  config.union_estimation_timer,
-                                                                  config.rearrangement_timer);
-            config.dp_algorithm_timer.stop();
+            size_t dummy{};
+            chopper::layout::hibf_statistics global_stats{config, sketches, cardinalities};
+            global_stats.hibf_layout = hibf_layout;
+            global_stats.print_header_to(std::cout);
+            global_stats.print_summary_to(dummy, std::cout);
         }
-
-        // brief Write the output to the layout file.
-        std::ofstream fout{config.output_filename};
-        chopper::layout::write_user_bins_to(filenames, fout);
-        config.write_to(fout);
-
-        for (size_t i = 0; i < config.hibf_config.tmax; ++i)
-            hibf_layouts[i].write_to(fout);
     }
+
+    // brief Write the output to the layout file.
+    std::ofstream fout{config.output_filename};
+    chopper::layout::write_user_bins_to(filenames, fout);
+    config.write_to(fout);
+    hibf_layout.write_to(fout);
 
     return 0;
 }
