@@ -702,8 +702,8 @@ void partition_user_bins(chopper::configuration const & config,
     int64_t const difference =
         static_cast<int64_t>(max_merged_size * relaxed_fpr_correction) - static_cast<int64_t>(max_split_size);
 
-    std::cout << "number_of_split_tbs:" << number_of_split_tbs << " difference:" << difference << std::endl;
-    std::cout << "Reconfiguring threshold.  from:" << split_threshold;
+    // std::cout << "number_of_split_tbs:" << number_of_split_tbs << " difference:" << difference << std::endl;
+    // std::cout << "Reconfiguring threshold.  from:" << split_threshold;
 
     if (number_of_split_tbs == 0)
         split_threshold = (split_threshold + max_merged_size) / 2; // increase threshold
@@ -718,7 +718,7 @@ void partition_user_bins(chopper::configuration const & config,
                 * ((static_cast<double>(max_merged_size) * relaxed_fpr_correction) /
                 static_cast<double>(max_split_size)));
 
-    std::cout << " to:" << split_threshold << std::endl;
+    // std::cout << " to:" << split_threshold << std::endl;
 
     // reset result
     partitions.clear();
