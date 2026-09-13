@@ -1143,33 +1143,37 @@ int execute(chopper::configuration & config,
     else
     {
         config.dp_algorithm_timer.start();
-        fast_layout(config,
-                    seqan::hibf::iota_vector(sketches.size()),
-                    cardinalities,
-                    sketches,
-                    minHash_sketches,
-                    hibf_layout);
+        if (config.fast_layout)
+        {
+            fast_layout(config,
+                        seqan::hibf::iota_vector(sketches.size()),
+                        cardinalities,
+                        sketches,
+                        minHash_sketches,
+                        hibf_layout);
+            // sort records ascending by the number of bin indices (corresponds to the IBF levels)
+            // GCOVR_EXCL_START
+            std::ranges::sort(hibf_layout.max_bins,
+                                [](auto const & r, auto const & l)
+                                {
+                                    if (r.previous_TB_indices.size() == l.previous_TB_indices.size())
+                                        return std::ranges::lexicographical_compare(r.previous_TB_indices,
+                                                                                    l.previous_TB_indices);
+                                    else
+                                        return r.previous_TB_indices.size() < l.previous_TB_indices.size();
+                                });
+            // GCOVR_EXCL_STOP
+        }
+        else
+        {
+            hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config,
+                                                              cardinalities,
+                                                              sketches,
+                                                              seqan::hibf::iota_vector(sketches.size()),
+                                                              config.union_estimation_timer,
+                                                              config.rearrangement_timer);
+        }
         config.dp_algorithm_timer.stop();
-
-        // hibf_layout = seqan::hibf::layout::compute_layout(config.hibf_config,
-        //                                                   cardinalities,
-        //                                                   sketches,
-        //                                                   seqan::hibf::iota_vector(sketches.size()),
-        //                                                   config.union_estimation_timer,
-        //                                                   config.rearrangement_timer);
-
-        // sort records ascending by the number of bin indices (corresponds to the IBF levels)
-        // GCOVR_EXCL_START
-        std::ranges::sort(hibf_layout.max_bins,
-                            [](auto const & r, auto const & l)
-                            {
-                                if (r.previous_TB_indices.size() == l.previous_TB_indices.size())
-                                    return std::ranges::lexicographical_compare(r.previous_TB_indices,
-                                                                                l.previous_TB_indices);
-                                else
-                                    return r.previous_TB_indices.size() < l.previous_TB_indices.size();
-                            });
-        // GCOVR_EXCL_STOP
 
         if (config.output_verbose_statistics)
         {

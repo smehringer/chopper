@@ -35,6 +35,9 @@ struct configuration
 {
     partitioning_scheme partitioning_approach{partitioning_scheme::lsh_sim};
 
+    //!\brief Whether to use the fast layout algorithm instead of the default one.
+    bool fast_layout{false};
+
     /*!\name General Configuration
      * \{
      */
