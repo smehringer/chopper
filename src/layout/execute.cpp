@@ -422,9 +422,7 @@ size_t split_bins(chopper::configuration const & config,
         // Question: divide and ceil?
         size_t const number_of_split_tbs =
             std::max<size_t>(1u, config.hibf_config.tmax * cardinalities[ub_idx] / sum_of_cardinalities);
-        std::cout << "number_of_split_tbs: " << number_of_split_tbs
-                  << " cardinalities[ub_idx]:" << cardinalities[ub_idx]
-                  << " sum_of_cardinalities:" << sum_of_cardinalities << std::endl;
+
         // fill partitions from behind to ensure an easier layouting
         for (size_t i = 0; i < number_of_split_tbs; ++i)
         {
@@ -434,7 +432,7 @@ size_t split_bins(chopper::configuration const & config,
             --pos;
         }
     }
-    std::cout << "pos: " << pos << std::endl;
+
     return pos + 1;
 }
 
