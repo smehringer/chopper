@@ -8,6 +8,7 @@ add_library (chopper_layout STATIC
              determine_best_number_of_technical_bins.cpp
              determine_split_bins.cpp
              execute.cpp
+             fast_layout.cpp
              hibf_statistics.cpp
              ibf_query_cost.cpp
              input.cpp
