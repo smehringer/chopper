@@ -20,21 +20,8 @@
 namespace chopper
 {
 
-enum class partitioning_scheme : uint8_t
-{
-    blocked,       // 0
-    sorted,        // 1
-    folded,        // 2
-    weighted_fold, // 3
-    similarity,    // 4
-    lsh,           // 5
-    lsh_sim        // 6
-};
-
 struct configuration
 {
-    partitioning_scheme partitioning_approach{partitioning_scheme::lsh_sim};
-
     //!\brief Whether to use the fast layout algorithm instead of the default one.
     bool fast_layout{false};
 

@@ -5,7 +5,6 @@
 // shipped with this file and also available at: https://github.com/seqan/chopper/blob/main/LICENSE.md
 // ---------------------------------------------------------------------------------------------------
 
-#include <algorithm>
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
@@ -21,7 +20,6 @@
 #include <chopper/layout/fast_layout.hpp>
 #include <chopper/layout/hibf_statistics.hpp>
 #include <chopper/layout/output.hpp>
-#include <chopper/sketch/output.hpp>
 
 #include <hibf/layout/compute_layout.hpp>
 #include <hibf/misc/iota_vector.hpp>
