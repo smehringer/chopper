@@ -6,12 +6,12 @@
 #include <string_view> // for operator<<
 #include <vector>      // for vector
 
-#include <chopper/lsh.hpp>
+#include <chopper/layout/fast_layout_cluster.hpp>
 
 TEST(Cluster_test, ctor_from_id)
 {
     size_t user_bin_idx{5};
-    chopper::Cluster const cluster{user_bin_idx};
+    chopper::layout::Cluster const cluster{user_bin_idx};
 
     EXPECT_EQ(cluster.id(), user_bin_idx);
     EXPECT_FALSE(cluster.empty());
@@ -25,8 +25,8 @@ TEST(Cluster_test, move_to)
 {
     size_t user_bin_idx1{5};
     size_t user_bin_idx2{7};
-    chopper::Cluster cluster1{user_bin_idx1};
-    chopper::Cluster cluster2{user_bin_idx2};
+    chopper::layout::Cluster cluster1{user_bin_idx1};
+    chopper::layout::Cluster cluster2{user_bin_idx2};
 
     EXPECT_TRUE(cluster1.is_valid(user_bin_idx1));
     EXPECT_TRUE(cluster2.is_valid(user_bin_idx2));
@@ -53,8 +53,8 @@ TEST(Cluster_test, move_to)
 
 TEST(Multicluster_test, ctor_from_cluster)
 {
-    chopper::Cluster const cluster1{5};
-    chopper::MultiCluster const multi_cluster1{cluster1};
+    chopper::layout::Cluster const cluster1{5};
+    chopper::layout::MultiCluster const multi_cluster1{cluster1};
 
     EXPECT_EQ(multi_cluster1.id(), cluster1.id());
     EXPECT_FALSE(multi_cluster1.empty());
@@ -67,11 +67,11 @@ TEST(Multicluster_test, ctor_from_cluster)
 
 TEST(Multicluster_test, ctor_from_moved_cluster)
 {
-    chopper::Cluster cluster1{5};
-    chopper::Cluster cluster2{7};
+    chopper::layout::Cluster cluster1{5};
+    chopper::layout::Cluster cluster2{7};
     cluster2.move_to(cluster1);
 
-    chopper::MultiCluster const multi_cluster2{cluster2};
+    chopper::layout::MultiCluster const multi_cluster2{cluster2};
 
     EXPECT_EQ(multi_cluster2.id(), cluster2.id());
     EXPECT_TRUE(multi_cluster2.empty());
@@ -84,19 +84,19 @@ TEST(Multicluster_test, ctor_from_moved_cluster)
 
 TEST(Multicluster_test, move_to)
 {
-    chopper::Cluster cluster1{5};
-    chopper::Cluster cluster2{7};
+    chopper::layout::Cluster cluster1{5};
+    chopper::layout::Cluster cluster2{7};
     cluster2.move_to(cluster1);
     ASSERT_EQ(cluster1.size(), 2u);
-    chopper::Cluster const cluster3{13};
+    chopper::layout::Cluster const cluster3{13};
 
-    chopper::MultiCluster multi_cluster1{cluster1};
+    chopper::layout::MultiCluster multi_cluster1{cluster1};
     EXPECT_TRUE(multi_cluster1.is_valid(cluster1.id()));
     EXPECT_EQ(multi_cluster1.size(), 1u);
     EXPECT_EQ(multi_cluster1.contained_user_bins().size(), 1u);
     EXPECT_EQ(multi_cluster1.contained_user_bins()[0].size(), 2u);
 
-    chopper::MultiCluster multi_cluster3{cluster3};
+    chopper::layout::MultiCluster multi_cluster3{cluster3};
     EXPECT_TRUE(multi_cluster3.is_valid(cluster3.id()));
     EXPECT_EQ(multi_cluster3.size(), 1u);
 
@@ -124,36 +124,36 @@ TEST(Multicluster_test, move_to)
 
 TEST(LSH_find_representative_cluster_test, cluster_one_move)
 {
-    std::vector<chopper::Cluster> clusters{chopper::Cluster{0}, chopper::Cluster{1}};
+    std::vector<chopper::layout::Cluster> clusters{chopper::layout::Cluster{0}, chopper::layout::Cluster{1}};
     clusters[1].move_to(clusters[0]);
 
-    EXPECT_EQ(chopper::LSH_find_representative_cluster(clusters, clusters[1].id()), clusters[0].id());
+    EXPECT_EQ(chopper::layout::LSH_find_representative_cluster(clusters, clusters[1].id()), clusters[0].id());
 }
 
 TEST(LSH_find_representative_cluster_test, multi_cluster_one_move)
 {
-    std::vector<chopper::MultiCluster> mclusters{{chopper::Cluster{0}}, {chopper::Cluster{1}}};
+    std::vector<chopper::layout::MultiCluster> mclusters{{chopper::layout::Cluster{0}}, {chopper::layout::Cluster{1}}};
     mclusters[1].move_to(mclusters[0]);
 
-    EXPECT_EQ(chopper::LSH_find_representative_cluster(mclusters, mclusters[1].id()), mclusters[0].id());
+    EXPECT_EQ(chopper::layout::LSH_find_representative_cluster(mclusters, mclusters[1].id()), mclusters[0].id());
 }
 
 TEST(LSH_find_representative_cluster_test, cluster_two_moves)
 {
-    std::vector<chopper::Cluster> clusters{chopper::Cluster{0}, chopper::Cluster{1}, chopper::Cluster{2}};
+    std::vector<chopper::layout::Cluster> clusters{chopper::layout::Cluster{0}, chopper::layout::Cluster{1}, chopper::layout::Cluster{2}};
     clusters[2].move_to(clusters[1]);
     clusters[1].move_to(clusters[0]);
 
-    EXPECT_EQ(chopper::LSH_find_representative_cluster(clusters, clusters[1].id()), clusters[0].id());
-    EXPECT_EQ(chopper::LSH_find_representative_cluster(clusters, clusters[2].id()), clusters[0].id());
+    EXPECT_EQ(chopper::layout::LSH_find_representative_cluster(clusters, clusters[1].id()), clusters[0].id());
+    EXPECT_EQ(chopper::layout::LSH_find_representative_cluster(clusters, clusters[2].id()), clusters[0].id());
 }
 
 TEST(LSH_find_representative_cluster_test, multi_cluster_two_moves)
 {
-    std::vector<chopper::MultiCluster> mclusters{{chopper::Cluster{0}}, {chopper::Cluster{1}}, {chopper::Cluster{2}}};
+    std::vector<chopper::layout::MultiCluster> mclusters{{chopper::layout::Cluster{0}}, {chopper::layout::Cluster{1}}, {chopper::layout::Cluster{2}}};
     mclusters[2].move_to(mclusters[1]);
     mclusters[1].move_to(mclusters[0]);
 
-    EXPECT_EQ(chopper::LSH_find_representative_cluster(mclusters, mclusters[1].id()), mclusters[0].id());
-    EXPECT_EQ(chopper::LSH_find_representative_cluster(mclusters, mclusters[2].id()), mclusters[0].id());
+    EXPECT_EQ(chopper::layout::LSH_find_representative_cluster(mclusters, mclusters[1].id()), mclusters[0].id());
+    EXPECT_EQ(chopper::layout::LSH_find_representative_cluster(mclusters, mclusters[2].id()), mclusters[0].id());
 }
