@@ -1,0 +1,52 @@
+--- a/src/layout/partition_user_bins.cpp
++++ b/src/layout/partition_user_bins.cpp
+@@ -31,6 +31,9 @@
+ #include <hibf/misc/timer.hpp>
+ #include <hibf/sketch/toolbox.hpp>
+ 
++// Measurement switch: false = variant A (as in chopper), true = variant B (seed count = number_of_remaining_tbs).
++bool chopper_variant_b = false;
++
+ namespace chopper::layout
+ {
+ 
+@@ -238,7 +241,8 @@
+  */
+ void post_process_clusters(std::vector<Cluster> & clusters,
+                            std::vector<size_t> const & cardinalities,
+-                           chopper::configuration const & config)
++                           [[maybe_unused]] chopper::configuration const & config,
++                           size_t const number_of_seeds)
+ {
+     // clusters are done. Start post processing
+     // since post processing involves re-ordering the clusters, the moved_to_cluster_id value of a cluster will not
+@@ -258,7 +262,7 @@
+ 
+     // push largest p clusters to the front
+     std::ranges::partial_sort(clusters,
+-                              std::ranges::next(clusters.begin(), config.hibf_config.tmax, clusters.end()),
++                              std::ranges::next(clusters.begin(), number_of_seeds, clusters.end()),
+                               std::ranges::greater{},
+                               [&largest_user_bin_cardinality](Cluster const & c)
+                               {
+@@ -270,7 +274,7 @@
+     // the largest ub is already at the start because of former sorting.
+     // Empty clusters are sorted last explicitly. Their cardinality key 0 does not suffice, because a non-empty cluster
+     // can have a cardinality estimate of 0, too.
+-    std::ranges::sort(clusters | std::views::drop(config.hibf_config.tmax),
++    std::ranges::sort(clusters | std::views::drop(number_of_seeds),
+                       std::ranges::greater{},
+                       [&largest_user_bin_cardinality](Cluster const & c)
+                       {
+@@ -480,7 +484,10 @@
+                                                                 sketches,
+                                                                 technical_bin_size_threshold,
+                                                                 config);
+-    post_process_clusters(clusters, cardinalities, config);
++    post_process_clusters(clusters,
++                          cardinalities,
++                          config,
++                          ::chopper_variant_b ? number_of_remaining_tbs : config.hibf_config.tmax);
+     lsh_algorithm_timer.stop();
+     config.lsh_algorithm_timer += lsh_algorithm_timer;
+ 
