@@ -14,6 +14,7 @@ add_library (chopper_layout STATIC
              input.cpp
              output.cpp
              partition_user_bins.cpp
+             phibf/partition_user_bins.cpp
 )
 target_link_libraries (chopper_layout PUBLIC chopper::shared)
 add_library (chopper::layout ALIAS chopper_layout)
