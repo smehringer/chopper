@@ -1,0 +1,175 @@
+// ---------------------------------------------------------------------------------------------------
+// Copyright (c) 2006-2023, Knut Reinert & Freie Universität Berlin
+// Copyright (c) 2016-2023, Knut Reinert & MPI für molekulare Genetik
+// This file may be used, modified and/or redistributed under the terms of the 3-clause BSD-License
+// shipped with this file and also available at: https://github.com/seqan/chopper/blob/main/LICENSE.md
+// ---------------------------------------------------------------------------------------------------
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include <seqan3/test/tmp_directory.hpp>
+
+#include <chopper/layout/input.hpp>
+
+#include "../api/api_test.hpp"
+#include "cli_test.hpp"
+
+namespace
+{
+
+std::filesystem::path write_input_file(std::filesystem::path const & directory)
+{
+    std::filesystem::path const input_filename{directory / "data.tsv"};
+    std::ofstream fout{input_filename};
+    fout << data("seq1.fa").string() << '\n'
+         << data("seq2.fa").string() << '\n'
+         << data("seq3.fa").string() << '\n'
+         << data("small.fa").string() << '\n';
+    return input_filename;
+}
+
+} // namespace
+
+TEST_F(cli_test, chopper_layout_phibf)
+{
+    seqan3::test::tmp_directory tmp_dir{};
+    std::filesystem::path const input_filename{write_input_file(tmp_dir.path())};
+    std::filesystem::path const layout_filename{tmp_dir.path() / "phibf.layout"};
+
+    cli_test_result result = execute_app("chopper",
+                                         "--input",
+                                         input_filename.c_str(),
+                                         "--number-of-partitions",
+                                         "2",
+                                         "--partitioning-approach",
+                                         "1",
+                                         "--output",
+                                         layout_filename.c_str());
+
+    EXPECT_EQ(result.exit_code, 0);
+    EXPECT_EQ(result.out, std::string{});
+    EXPECT_EQ(result.err, std::string{});
+
+    std::ifstream layout_stream{layout_filename};
+    auto [filenames, config, layouts] = chopper::layout::read_layouts_file(layout_stream);
+
+    EXPECT_EQ(filenames.size(), 4u);
+    EXPECT_EQ(config.number_of_partitions, 2u);
+    ASSERT_EQ(layouts.size(), 2u);
+
+    std::vector<size_t> user_bins{};
+    for (auto const & layout : layouts)
+        for (auto const & user_bin : layout.user_bins)
+            user_bins.push_back(user_bin.idx);
+    std::ranges::sort(user_bins);
+    EXPECT_EQ(user_bins, (std::vector<size_t>{0, 1, 2, 3}));
+}
+
+TEST_F(cli_test, chopper_layout_phibf_with_fast_layout)
+{
+    seqan3::test::tmp_directory tmp_dir{};
+    std::filesystem::path const input_filename{write_input_file(tmp_dir.path())};
+    std::filesystem::path const layout_filename{tmp_dir.path() / "phibf.layout"};
+
+    cli_test_result result = execute_app("chopper",
+                                         "--input",
+                                         input_filename.c_str(),
+                                         "--number-of-partitions",
+                                         "2",
+                                         "--fast-layout",
+                                         "--output",
+                                         layout_filename.c_str());
+
+    EXPECT_NE(result.exit_code, 0);
+    EXPECT_EQ(result.out, std::string{});
+    EXPECT_EQ(result.err, std::string{"[ERROR] You cannot combine --fast-layout with --number-of-partitions.\n"});
+}
+
+TEST_F(cli_test, chopper_layout_phibf_with_determine_best_tmax)
+{
+    seqan3::test::tmp_directory tmp_dir{};
+    std::filesystem::path const input_filename{write_input_file(tmp_dir.path())};
+    std::filesystem::path const layout_filename{tmp_dir.path() / "phibf.layout"};
+
+    cli_test_result result = execute_app("chopper",
+                                         "--input",
+                                         input_filename.c_str(),
+                                         "--number-of-partitions",
+                                         "2",
+                                         "--determine-best-tmax",
+                                         "--output",
+                                         layout_filename.c_str());
+
+    EXPECT_NE(result.exit_code, 0);
+    EXPECT_EQ(result.out, std::string{});
+    EXPECT_EQ(result.err,
+              std::string{"[ERROR] You cannot combine --determine-best-tmax with --number-of-partitions.\n"});
+}
+
+TEST_F(cli_test, chopper_layout_phibf_from_sketch_file_without_minhashes)
+{
+    seqan3::test::tmp_directory tmp_dir{};
+    std::filesystem::path const input_filename{write_input_file(tmp_dir.path())};
+    std::filesystem::path const sketch_filename{tmp_dir.path() / "default.sketch"};
+
+    // The default layout does not compute MinHash sketches.
+    {
+        std::filesystem::path const layout_filename{tmp_dir.path() / "default.layout"};
+        cli_test_result result = execute_app("chopper",
+                                             "--input",
+                                             input_filename.c_str(),
+                                             "--output-sketches-to",
+                                             sketch_filename.c_str(),
+                                             "--output",
+                                             layout_filename.c_str());
+        ASSERT_EQ(result.exit_code, 0);
+    }
+
+    // lsh_sim needs MinHash sketches.
+    {
+        std::filesystem::path const layout_filename{tmp_dir.path() / "lsh_sim.layout"};
+        cli_test_result result = execute_app("chopper",
+                                             "--input",
+                                             sketch_filename.c_str(),
+                                             "--number-of-partitions",
+                                             "2",
+                                             "--partitioning-approach",
+                                             "6",
+                                             "--output",
+                                             layout_filename.c_str());
+
+        EXPECT_NE(result.exit_code, 0);
+        EXPECT_EQ(result.out, std::string{});
+        EXPECT_EQ(result.err,
+                  std::string{"[ERROR] The sketch file does not contain MinHash sketches, which the chosen "
+                              "--partitioning-approach needs. Create the sketch file with --number-of-partitions.\n"});
+    }
+
+    // sorted does not need MinHash sketches.
+    {
+        std::filesystem::path const layout_filename{tmp_dir.path() / "sorted.layout"};
+        cli_test_result result = execute_app("chopper",
+                                             "--input",
+                                             sketch_filename.c_str(),
+                                             "--number-of-partitions",
+                                             "2",
+                                             "--partitioning-approach",
+                                             "1",
+                                             "--output",
+                                             layout_filename.c_str());
+
+        EXPECT_EQ(result.exit_code, 0);
+        EXPECT_EQ(result.out, std::string{});
+        EXPECT_EQ(result.err, std::string{});
+
+        std::ifstream layout_stream{layout_filename};
+        auto [filenames, config, layouts] = chopper::layout::read_layouts_file(layout_stream);
+        EXPECT_EQ(layouts.size(), 2u);
+    }
+}
