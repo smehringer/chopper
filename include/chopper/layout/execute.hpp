@@ -24,11 +24,14 @@ namespace chopper::layout
  * \param[in]     filenames        The file names of each user bin. They are written to the layout file.
  * \param[in]     sketches         The HyperLogLog sketch of each user bin.
  * \param[in]     minHash_sketches The MinHash sketches of each user bin. Only used, and then required for every user
- *                                 bin, if `config.fast_layout` is set. May be empty otherwise.
+ *                                 bin, if `config.fast_layout` is set or a partitioned HIBF with the `lsh` or `lsh_sim`
+ *                                 partitioning approach is computed. May be empty otherwise.
  * \returns 0.
- * \throws std::invalid_argument If both `config.determine_best_tmax` and `config.fast_layout` are set.
+ * \throws std::invalid_argument If both `config.determine_best_tmax` and `config.fast_layout` are set, or if
+ *                               `config.number_of_partitions >= 2` and either of them is set.
  *
- * The layout is computed with
+ * If `config.number_of_partitions >= 2`, a partitioned HIBF layout is computed with phibf::execute.
+ * Otherwise, the layout is computed with
  * - determine_best_number_of_technical_bins if `config.determine_best_tmax` is set,
  * - fast_layout if `config.fast_layout` is set,
  * - the DP layout of the HIBF library (seqan::hibf::layout::compute_layout) otherwise.

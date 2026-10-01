@@ -20,6 +20,7 @@
 #include <chopper/layout/fast_layout.hpp>
 #include <chopper/layout/hibf_statistics.hpp>
 #include <chopper/layout/output.hpp>
+#include <chopper/layout/phibf/execute.hpp>
 
 #include <hibf/layout/compute_layout.hpp>
 #include <hibf/misc/iota_vector.hpp>
@@ -37,10 +38,19 @@ int execute(chopper::configuration & config,
     if (config.determine_best_tmax && config.fast_layout)
         throw std::invalid_argument{"determine_best_tmax is not supported with fast_layout."};
 
+    bool const partitioned = config.number_of_partitions >= 2u; // 0 == unset == single HIBF, 1 == single HIBF
+
+    if (partitioned && (config.determine_best_tmax || config.fast_layout))
+        throw std::invalid_argument{"The partitioned HIBF (number_of_partitions >= 2) is not supported with "
+                                    "determine_best_tmax or fast_layout."};
+
     config.hibf_config.validate_and_set_defaults();
 
     std::vector<size_t> cardinalities;
     seqan::hibf::sketch::estimate_kmer_counts(sketches, cardinalities);
+
+    if (partitioned)
+        return phibf::execute(config, filenames, cardinalities, sketches, minHash_sketches);
 
     seqan::hibf::layout::layout hibf_layout;
 
