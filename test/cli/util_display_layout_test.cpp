@@ -37,7 +37,7 @@ std::string get_layout_with_correct_filenames(std::string_view const seq1_filena
               "@CHOPPER_CONFIG\n"
               "@{\n"
               "@    \"chopper_config\": {\n"
-              "@        \"version\": 2,\n"
+              "@        \"version\": 3,\n"
               "@        \"data_file\": {\n"
               "@            \"value0\": \"foo.txt\"\n"
               "@        },\n"
@@ -49,6 +49,8 @@ std::string get_layout_with_correct_filenames(std::string_view const seq1_filena
               "@        \"window_size\": 15,\n"
               "@        \"disable_sketch_output\": true,\n"
               "@        \"precomputed_files\": false,\n"
+              "@        \"maximum_index_size\": 0,\n"
+              "@        \"number_of_partitions\": 0,\n"
               "@        \"output_filename\": {\n"
               "@            \"value0\": \""
             + output_filename.data()

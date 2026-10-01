@@ -19,6 +19,8 @@ chopper::configuration generate_config()
     config.window_size = 24;
     config.disable_sketch_output = true;
     config.precomputed_files = true;
+    config.maximum_index_size = 1024;
+    config.number_of_partitions = 4;
     config.output_filename = "file.layout";
     config.determine_best_tmax = true;
     config.force_all_binnings = true;
@@ -51,6 +53,8 @@ bool operator==(chopper::configuration const & lhs, chopper::configuration const
            lhs.window_size == rhs.window_size &&                                                   //
            lhs.disable_sketch_output == rhs.disable_sketch_output &&                               //
            lhs.precomputed_files == rhs.precomputed_files &&                                       //
+           lhs.maximum_index_size == rhs.maximum_index_size &&                                     //
+           lhs.number_of_partitions == rhs.number_of_partitions &&                                 //
            lhs.output_filename == rhs.output_filename &&                                           //
            lhs.determine_best_tmax == rhs.determine_best_tmax &&                                   //
            lhs.force_all_binnings == rhs.force_all_binnings &&                                     //
@@ -72,7 +76,7 @@ bool operator==(chopper::configuration const & lhs, chopper::configuration const
 static constexpr std::string_view config_string_view{"@CHOPPER_CONFIG\n"
                                                      "@{\n"
                                                      "@    \"chopper_config\": {\n"
-                                                     "@        \"version\": 2,\n"
+                                                     "@        \"version\": 3,\n"
                                                      "@        \"data_file\": {\n"
                                                      "@            \"value0\": \"/path/to/data.file\"\n"
                                                      "@        },\n"
@@ -84,6 +88,8 @@ static constexpr std::string_view config_string_view{"@CHOPPER_CONFIG\n"
                                                      "@        \"window_size\": 24,\n"
                                                      "@        \"disable_sketch_output\": true,\n"
                                                      "@        \"precomputed_files\": true,\n"
+                                                     "@        \"maximum_index_size\": 1024,\n"
+                                                     "@        \"number_of_partitions\": 4,\n"
                                                      "@        \"output_filename\": {\n"
                                                      "@            \"value0\": \"file.layout\"\n"
                                                      "@        },\n"
@@ -148,6 +154,37 @@ TEST(config_test, read_from_with_more_meta)
     config.read_from(ss);
 
     EXPECT_EQ(config, generate_config());
+}
+
+// Configs written before version 3 do not contain the partitioned HIBF fields.
+TEST(config_test, read_from_version_2)
+{
+    std::string config_string{config_string_view};
+
+    auto erase_line = [&config_string](std::string_view const line)
+    {
+        size_t const pos = config_string.find(line);
+        ASSERT_NE(pos, std::string::npos) << line;
+        config_string.erase(pos, line.size());
+    };
+    erase_line("@        \"maximum_index_size\": 1024,\n");
+    erase_line("@        \"number_of_partitions\": 4,\n");
+
+    std::string_view const version_3{"@        \"version\": 3,\n"};
+    size_t const pos = config_string.find(version_3);
+    ASSERT_NE(pos, std::string::npos);
+    config_string.replace(pos, version_3.size(), "@        \"version\": 2,\n");
+
+    std::stringstream ss{config_string};
+
+    chopper::configuration config;
+    config.read_from(ss);
+
+    chopper::configuration expected{generate_config()};
+    expected.maximum_index_size = 0;
+    expected.number_of_partitions = 0;
+
+    EXPECT_EQ(config, expected);
 }
 
 // Easier to do in the config_test because of existing helper functions

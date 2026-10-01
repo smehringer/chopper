@@ -81,7 +81,7 @@ TEST_F(cli_test, chopper_layout_from_sketch_file)
                                       "@CHOPPER_CONFIG\n"
                                       "@{\n"
                                       "@    \"chopper_config\": {\n"
-                                      "@        \"version\": 2,\n"
+                                      "@        \"version\": 3,\n"
                                       "@        \"data_file\": {\n"
                                       "@            \"value0\": \""
                                     + input_filename.string()
@@ -95,6 +95,8 @@ TEST_F(cli_test, chopper_layout_from_sketch_file)
                                       "@        \"window_size\": 19,\n"
                                       "@        \"disable_sketch_output\": true,\n"
                                       "@        \"precomputed_files\": false,\n"
+                                      "@        \"maximum_index_size\": 0,\n"
+                                      "@        \"number_of_partitions\": 0,\n"
                                       "@        \"output_filename\": {\n"
                                       "@            \"value0\": \""
                                     + binning_filename.string()

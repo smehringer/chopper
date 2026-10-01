@@ -50,6 +50,19 @@ struct configuration
     bool precomputed_files{false};
     //!\}
 
+    /*!\name Partitioned HIBF configuration
+     * \{
+     */
+    //!\brief The maximum index size that the HIBF should not exceed. number_of_paritions will be set accordingly.
+    size_t maximum_index_size{0};
+
+    //!\brief The number of partitions for the HIBF index. 0 and 1 compute a single HIBF layout.
+    size_t number_of_partitions{0};
+
+    //!\brief The partitioning approach. See chopper::layout::phibf::partitioning_scheme.
+    int partitioning_approach{};
+    //!\}
+
     /*!\name Configuration of size estimates
      * \{
      */
@@ -108,7 +121,8 @@ private:
     template <typename archive_t>
     void serialize(archive_t & archive)
     {
-        uint32_t version{2};
+        // Version 3 added the partitioned HIBF configuration.
+        uint32_t version{3};
         archive(CEREAL_NVP(version));
 
         archive(CEREAL_NVP(data_file));
@@ -118,6 +132,13 @@ private:
         archive(CEREAL_NVP(window_size));
         archive(CEREAL_NVP(disable_sketch_output));
         archive(CEREAL_NVP(precomputed_files));
+
+        // Files written before version 3 do not contain these fields. Reading them unconditionally would throw.
+        if (version >= 3)
+        {
+            archive(CEREAL_NVP(maximum_index_size));
+            archive(CEREAL_NVP(number_of_partitions));
+        }
 
         archive(CEREAL_NVP(output_filename));
         archive(CEREAL_NVP(determine_best_tmax));
