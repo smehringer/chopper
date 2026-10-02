@@ -53,9 +53,6 @@ struct configuration
     /*!\name Partitioned HIBF configuration
      * \{
      */
-    //!\brief The maximum index size that the HIBF should not exceed. number_of_paritions will be set accordingly.
-    size_t maximum_index_size{0};
-
     //!\brief The number of partitions for the HIBF index. 0 and 1 compute a single HIBF layout.
     size_t number_of_partitions{0};
 
@@ -136,7 +133,6 @@ private:
         // Files written before version 3 do not contain these fields. Reading them unconditionally would throw.
         if (version >= 3)
         {
-            archive(CEREAL_NVP(maximum_index_size));
             archive(CEREAL_NVP(number_of_partitions));
         }
 

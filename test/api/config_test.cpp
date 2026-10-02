@@ -19,7 +19,6 @@ chopper::configuration generate_config()
     config.window_size = 24;
     config.disable_sketch_output = true;
     config.precomputed_files = true;
-    config.maximum_index_size = 1024;
     config.number_of_partitions = 4;
     config.output_filename = "file.layout";
     config.determine_best_tmax = true;
@@ -53,7 +52,6 @@ bool operator==(chopper::configuration const & lhs, chopper::configuration const
            lhs.window_size == rhs.window_size &&                                                   //
            lhs.disable_sketch_output == rhs.disable_sketch_output &&                               //
            lhs.precomputed_files == rhs.precomputed_files &&                                       //
-           lhs.maximum_index_size == rhs.maximum_index_size &&                                     //
            lhs.number_of_partitions == rhs.number_of_partitions &&                                 //
            lhs.output_filename == rhs.output_filename &&                                           //
            lhs.determine_best_tmax == rhs.determine_best_tmax &&                                   //
@@ -88,7 +86,6 @@ static constexpr std::string_view config_string_view{"@CHOPPER_CONFIG\n"
                                                      "@        \"window_size\": 24,\n"
                                                      "@        \"disable_sketch_output\": true,\n"
                                                      "@        \"precomputed_files\": true,\n"
-                                                     "@        \"maximum_index_size\": 1024,\n"
                                                      "@        \"number_of_partitions\": 4,\n"
                                                      "@        \"output_filename\": {\n"
                                                      "@            \"value0\": \"file.layout\"\n"
@@ -167,7 +164,6 @@ TEST(config_test, read_from_version_2)
         ASSERT_NE(pos, std::string::npos) << line;
         config_string.erase(pos, line.size());
     };
-    erase_line("@        \"maximum_index_size\": 1024,\n");
     erase_line("@        \"number_of_partitions\": 4,\n");
 
     std::string_view const version_3{"@        \"version\": 3,\n"};
@@ -181,7 +177,6 @@ TEST(config_test, read_from_version_2)
     config.read_from(ss);
 
     chopper::configuration expected{generate_config()};
-    expected.maximum_index_size = 0;
     expected.number_of_partitions = 0;
 
     EXPECT_EQ(config, expected);
