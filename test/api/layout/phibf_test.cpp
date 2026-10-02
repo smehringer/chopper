@@ -255,3 +255,17 @@ TEST(phibf_regression_test, fewer_user_bins_than_partitions)
         EXPECT_THROW(data.partition(), std::invalid_argument) << "approach " << approach;
     }
 }
+
+// Some approaches leave partitions empty, e.g. blocked if there are fewer blocks than partitions, or sorted with a few
+// very large user bins. An empty partition crashed compute_layout.
+TEST(phibf_regression_test, empty_partition)
+{
+    using chopper::layout::phibf::partitioning_scheme;
+
+    for (auto const & [approach, n, np, dist] : {std::tuple<int, size_t, size_t, std::string>{partitioning_scheme::blocked, 100, 16, "uniform"},
+                                                 {partitioning_scheme::sorted, 64, 8, "skewed"}})
+    {
+        stress_data const data{approach, n, np, dist};
+        EXPECT_THROW(data.partition(), std::runtime_error) << "approach " << approach;
+    }
+}

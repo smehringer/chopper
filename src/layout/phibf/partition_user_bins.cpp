@@ -993,6 +993,16 @@ void partition_user_bins(chopper::configuration const & config,
 
         throw std::logic_error{str};
     }
+
+    // Each partition is laid out as a separate HIBF, which needs at least one user bin.
+    for (size_t p = 0; p < partitions.size(); ++p)
+    {
+        if (partitions[p].empty())
+        {
+            throw std::runtime_error{"Partition " + std::to_string(p) + " of " + std::to_string(partitions.size())
+                                     + " is empty. Use fewer partitions or another partitioning approach."};
+        }
+    }
 }
 
 } // namespace chopper::layout::phibf

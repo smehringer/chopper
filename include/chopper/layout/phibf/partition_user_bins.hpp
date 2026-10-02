@@ -42,10 +42,11 @@ enum partitioning_scheme
  * \param[in]  sketches         The HyperLogLog sketch of each user bin.
  * \param[in]  minHash_sketches The MinHash tables of each user bin. Only used by the `lsh` and `lsh_sim` approaches.
  * \param[out] partitions       Must have size `config.number_of_partitions` on entry. On return, `partitions[i]` holds
- *                              the user bin indices assigned to partition `i`.
+ *                              the user bin indices assigned to partition `i`. No partition is empty.
  * \throws std::invalid_argument If `config.partitioning_approach` is not a phibf::partitioning_scheme, or if there are
  *                               fewer user bins than partitions.
  * \throws std::logic_error If not all user bins have been assigned to a partition.
+ * \throws std::runtime_error If a partition is empty.
  *
  * Each partition is laid out as a separate HIBF. In contrast to the fast layout's
  * chopper::layout::partition_user_bins, user bins are never split across partitions.
