@@ -392,8 +392,11 @@ void post_process_clusters(std::vector<Cluster> & clusters,
     };
     std::sort(clusters.begin() + config.number_of_partitions, clusters.end(), compare_cardinality_and_move_empty_clusters_to_the_end);
 
-    assert(clusters[0].size() >= clusters[1].size()); // sanity check
-    assert(cardinalities[clusters[config.number_of_partitions].id()] >= cardinalities[clusters[config.number_of_partitions + 1].id()]); // sanity check
+    assert(clusters.size() < 2 || clusters[0].size() >= clusters[1].size()); // sanity check
+    // sanity check. Note that a cluster's id() is not its largest user bin; contained_user_bins()[0] is.
+    assert(std::is_sorted(clusters.begin() + config.number_of_partitions,
+                          clusters.end(),
+                          compare_cardinality_and_move_empty_clusters_to_the_end));
 
 // debug
     for (size_t cidx = 1; cidx < clusters.size(); ++cidx)
