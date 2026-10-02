@@ -147,6 +147,13 @@ int chopper_layout(chopper::configuration & config, sharg::parser & parser)
         chopper::sketch::check_filenames(filenames, config);
     }
 
+    if (partitioned && filenames.size() < config.number_of_partitions)
+        throw sharg::parser_error{sharg::detail::to_string("The number of partitions (",
+                                                           config.number_of_partitions,
+                                                           ") must not exceed the number of user bins (",
+                                                           filenames.size(),
+                                                           ").")};
+
     config.hibf_config.input_fn =
         chopper::input_functor{filenames, config.precomputed_files, config.k, config.window_size};
     config.hibf_config.number_of_user_bins = filenames.size();

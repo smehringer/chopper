@@ -244,3 +244,14 @@ TEST(phibf_regression_test, lsh_post_process_clusters_sanity_check)
         expect_each_user_bin_assigned_once(data.partition(), n);
     }
 }
+
+// With fewer user bins than partitions, lsh and lsh_sim read and wrote out of bounds (std::partial_sort) and the other
+// approaches left partitions empty.
+TEST(phibf_regression_test, fewer_user_bins_than_partitions)
+{
+    for (int approach = 0; approach <= chopper::layout::phibf::partitioning_scheme::lsh_sim; ++approach)
+    {
+        stress_data const data{approach, 1, 2, "uniform"};
+        EXPECT_THROW(data.partition(), std::invalid_argument) << "approach " << approach;
+    }
+}

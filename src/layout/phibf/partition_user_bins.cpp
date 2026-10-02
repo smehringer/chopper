@@ -567,6 +567,13 @@ void partition_user_bins(chopper::configuration const & config,
                                     + "."};
     }
 
+    if (cardinalities.size() < config.number_of_partitions)
+    {
+        throw std::invalid_argument{"The number of partitions (" + std::to_string(config.number_of_partitions)
+                                    + ") must not exceed the number of user bins ("
+                                    + std::to_string(cardinalities.size()) + ")."};
+    }
+
     // all approaches need sorted positions
     std::vector<size_t> const sorted_positions = [&cardinalities]()
     {
