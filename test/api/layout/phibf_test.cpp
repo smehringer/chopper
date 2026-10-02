@@ -323,8 +323,11 @@ TEST(phibf_regression_test, user_bin_does_not_fit)
 {
     using chopper::layout::phibf::partitioning_scheme;
 
+    // similarity: 4 equally sized user bins (cardinality c) in 3 partitions. Each partition is initialised with one
+    // user bin. The fourth would need room for 2c, but a partition may hold at most 1.2 * ceil(4c / 3) = 1.6c.
     for (auto const & [approach, n, np, dist] : {std::tuple<int, size_t, size_t, std::string>{partitioning_scheme::lsh, 8, 5, "equal"},
-                                                 {partitioning_scheme::lsh_sim, 257, 8, "skewed"}})
+                                                 {partitioning_scheme::lsh_sim, 257, 8, "skewed"},
+                                                 {partitioning_scheme::similarity, 4, 3, "equal"}})
     {
         stress_data const data{approach, n, np, dist};
         try
