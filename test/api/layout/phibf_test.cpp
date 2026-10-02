@@ -339,3 +339,46 @@ TEST(phibf_regression_test, user_bin_does_not_fit)
         }
     }
 }
+
+// weighted_fold subtracted the cardinality of the next unassigned large user bin instead of the removed one, counted
+// accepted small user bins twice, could remove all user bins of a partition, and its cursors could cross. It crashed
+// for valid inputs, e.g. 257 user bins in 4 partitions.
+TEST(phibf_regression_test, weighted_fold_crash)
+{
+    for (auto const & [n, np, dist] : {std::tuple<size_t, size_t, std::string>{257, 4, "skewed"}, {64, 4, "uniform"}})
+    {
+        stress_data const data{chopper::layout::phibf::partitioning_scheme::weighted_fold, n, np, dist};
+        expect_each_user_bin_assigned_once(data.partition(), n);
+    }
+
+    // About two user bins per partition: some partitions stay empty, which is reported.
+    stress_data const data{chopper::layout::phibf::partitioning_scheme::weighted_fold, 33, 16, "uniform"};
+    EXPECT_THROW(data.partition(), std::runtime_error);
+}
+
+TEST(phibf_regression_test, weighted_fold)
+{
+    // 8 user bins, 2 partitions: 125 k-mers and 4 user bins per partition.
+    stress_data data{chopper::layout::phibf::partitioning_scheme::weighted_fold, 8, 2, "equal"};
+    data.cardinalities = {100, 90, 10, 10, 10, 10, 10, 10};
+
+    // Partition 0 takes the large user bins 100 and 90 (score |1 - 190/125| + |1 - 2/4| = 1.02).
+    // Removing 90 and adding small user bins while the score improves: 110/2 (0.62), 120/3 (0.29), 130/4 (0.04);
+    // a fourth one would be worse (140/5: 0.37). 0.04 < 1.02, so this is accepted.
+    // Removing 100 as well cannot improve on that (at best 30/4: 0.76). The rest goes to partition 1.
+    auto const partitions = data.partition();
+    ASSERT_EQ(partitions.size(), 2u);
+
+    auto partition_cardinalities = [&data](std::vector<size_t> const & partition)
+    {
+        std::vector<size_t> result;
+        for (size_t const user_bin : partition)
+            result.push_back(data.cardinalities[user_bin]);
+        std::ranges::sort(result, std::ranges::greater{});
+        return result;
+    };
+
+    EXPECT_EQ(partition_cardinalities(partitions[0]), (std::vector<size_t>{100, 10, 10, 10}));
+    EXPECT_EQ(partition_cardinalities(partitions[1]), (std::vector<size_t>{90, 10, 10, 10}));
+    expect_each_user_bin_assigned_once(partitions, 8);
+}

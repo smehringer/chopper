@@ -19,6 +19,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <chopper/configuration.hpp>
@@ -703,78 +704,81 @@ void partition_user_bins(chopper::configuration const & config,
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
         size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(cardinalities.size(), config.number_of_partitions);
 
-        size_t current_big_pos{0};                          // the next largest user bin to assign to a partition
-        size_t current_small_pos{cardinalities.size() - 1}; // the next small user bin
+        // The unassigned user bins are sorted_positions[big, small_end). Large user bins are taken from the front,
+        // small ones from the back.
+        size_t big{0};
+        size_t small_end{sorted_positions.size()};
+
+        // How far a partition with the given cardinality and number of user bins is off the targets. Smaller is better.
+        auto compute_score = [&](size_t const cardinality, size_t const number_of_user_bins)
+        {
+            double const weight = static_cast<double>(cardinality) / cardinality_per_part;
+            double const amount = static_cast<double>(number_of_user_bins) / u_bins_per_part;
+            return std::abs(1.0 - weight) + std::abs(1.0 - amount);
+        };
 
         for (size_t current_part = 0; current_part + 1 < config.number_of_partitions; ++current_part)
         {
-            size_t current_cardinality{0};
+            std::vector<size_t> large_bins;
             std::vector<size_t> small_bins;
-            size_t new_small_bin_addition{0};
-
-            auto compute_score = [&]()
-            {
-                double const weight = static_cast<double>(current_cardinality) / cardinality_per_part;
-                double const amount =
-                    static_cast<double>(partitions[current_part].size() + small_bins.size() + new_small_bin_addition)
-                    / u_bins_per_part;
-                return std::abs(1.0 - weight) + std::abs(1.0 - amount);
-            };
+            size_t current_cardinality{0};
 
             // first add all large bins that fit
-            while (current_cardinality < cardinality_per_part)
+            while (current_cardinality < cardinality_per_part && big < small_end)
             {
-                partitions[current_part].push_back(sorted_positions[current_big_pos]);
-                current_cardinality += cardinalities[sorted_positions[current_big_pos]];
-                ++current_big_pos;
+                large_bins.push_back(sorted_positions[big]);
+                current_cardinality += cardinalities[sorted_positions[big]];
+                ++big;
             }
 
-            double local_optimum = compute_score();
+            double local_optimum = compute_score(current_cardinality, large_bins.size());
 
-            // then remove big bins and add small bins until a local optima is reached
-            while (true)
+            // then remove large bins and add small bins until a local optimum is reached
+            while (!large_bins.empty())
             {
-                size_t const cache_last_small_pos{current_small_pos};
-                // remove a big user bin and fill the partition with small user bins
-                current_cardinality -= cardinalities[sorted_positions[current_big_pos]];
+                // remove the last large bin ...
+                size_t trial_cardinality = current_cardinality - cardinalities[large_bins.back()];
+                size_t trial_number_of_user_bins = large_bins.size() - 1 + small_bins.size();
+                size_t trial_small_end = small_end;
+                double trial_score = compute_score(trial_cardinality, trial_number_of_user_bins);
 
-                // can we further improve the ratio by adding more small bins?
-                double improved_score{};
-                do
+                // ... and add small bins as long as this improves the score. The removed large bin is
+                // sorted_positions[big - 1] and must not be added as a small bin.
+                while (trial_small_end > big)
                 {
-                    improved_score = compute_score();
-                    current_cardinality += cardinalities[sorted_positions[current_small_pos]];
-                    --current_small_pos;
-                    ++new_small_bin_addition;
+                    size_t const candidate = sorted_positions[trial_small_end - 1];
+                    double const score =
+                        compute_score(trial_cardinality + cardinalities[candidate], trial_number_of_user_bins + 1);
+
+                    if (score >= trial_score) // smaller is better
+                        break;
+
+                    trial_cardinality += cardinalities[candidate];
+                    ++trial_number_of_user_bins;
+                    --trial_small_end;
+                    trial_score = score;
                 }
-                while (compute_score() < improved_score); // smaller is better
-                // remove overstep
-                ++current_small_pos;
-                current_cardinality -= cardinalities[sorted_positions[current_small_pos]];
-                --new_small_bin_addition;
 
-                if (local_optimum < compute_score()) // score would increase. Stop
-                {
-                    current_small_pos = cache_last_small_pos;
+                if (trial_number_of_user_bins == 0 || local_optimum < trial_score) // score would increase. Stop
                     break;
-                }
-                else // update
-                {
-                    partitions[current_part].pop_back();
-                    --current_big_pos;
-                    for (size_t pos = cache_last_small_pos; pos > current_small_pos; --pos)
-                        small_bins.push_back(sorted_positions[pos]);
-                }
+
+                // update
+                large_bins.pop_back();
+                --big;
+                for (size_t pos = small_end; pos > trial_small_end; --pos)
+                    small_bins.push_back(sorted_positions[pos - 1]);
+                small_end = trial_small_end;
+                current_cardinality = trial_cardinality;
+                local_optimum = trial_score;
             }
+
+            partitions[current_part] = std::move(large_bins);
             partitions[current_part].insert(partitions[current_part].end(), small_bins.begin(), small_bins.end());
         }
 
         // remaining user bins go to last partition
-        while (current_big_pos <= current_small_pos)
-        {
-            partitions[config.number_of_partitions - 1].push_back(sorted_positions[current_big_pos]);
-            ++current_big_pos;
-        }
+        for (; big < small_end; ++big)
+            partitions[config.number_of_partitions - 1].push_back(sorted_positions[big]);
     }
     else if (config.partitioning_approach == partitioning_scheme::similarity)
     {
