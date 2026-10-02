@@ -96,6 +96,7 @@ TEST_F(cli_test, chopper_layout_from_sketch_file)
                                       "@        \"disable_sketch_output\": true,\n"
                                       "@        \"precomputed_files\": false,\n"
                                       "@        \"number_of_partitions\": 0,\n"
+                                      "@        \"partitioning_approach\": 0,\n"
                                       "@        \"output_filename\": {\n"
                                       "@            \"value0\": \""
                                     + binning_filename.string()

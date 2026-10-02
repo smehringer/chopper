@@ -20,6 +20,7 @@ chopper::configuration generate_config()
     config.disable_sketch_output = true;
     config.precomputed_files = true;
     config.number_of_partitions = 4;
+    config.partitioning_approach = 6;
     config.output_filename = "file.layout";
     config.determine_best_tmax = true;
     config.force_all_binnings = true;
@@ -53,6 +54,7 @@ bool operator==(chopper::configuration const & lhs, chopper::configuration const
            lhs.disable_sketch_output == rhs.disable_sketch_output &&                               //
            lhs.precomputed_files == rhs.precomputed_files &&                                       //
            lhs.number_of_partitions == rhs.number_of_partitions &&                                 //
+           lhs.partitioning_approach == rhs.partitioning_approach &&                               //
            lhs.output_filename == rhs.output_filename &&                                           //
            lhs.determine_best_tmax == rhs.determine_best_tmax &&                                   //
            lhs.force_all_binnings == rhs.force_all_binnings &&                                     //
@@ -87,6 +89,7 @@ static constexpr std::string_view config_string_view{"@CHOPPER_CONFIG\n"
                                                      "@        \"disable_sketch_output\": true,\n"
                                                      "@        \"precomputed_files\": true,\n"
                                                      "@        \"number_of_partitions\": 4,\n"
+                                                     "@        \"partitioning_approach\": 6,\n"
                                                      "@        \"output_filename\": {\n"
                                                      "@            \"value0\": \"file.layout\"\n"
                                                      "@        },\n"
@@ -165,6 +168,7 @@ TEST(config_test, read_from_version_2)
         config_string.erase(pos, line.size());
     };
     erase_line("@        \"number_of_partitions\": 4,\n");
+    erase_line("@        \"partitioning_approach\": 6,\n");
 
     std::string_view const version_3{"@        \"version\": 3,\n"};
     size_t const pos = config_string.find(version_3);
@@ -178,6 +182,7 @@ TEST(config_test, read_from_version_2)
 
     chopper::configuration expected{generate_config()};
     expected.number_of_partitions = 0;
+    expected.partitioning_approach = 0;
 
     EXPECT_EQ(config, expected);
 }

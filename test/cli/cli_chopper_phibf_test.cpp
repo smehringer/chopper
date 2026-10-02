@@ -61,6 +61,7 @@ TEST_F(cli_test, chopper_layout_phibf)
 
     EXPECT_EQ(filenames.size(), 4u);
     EXPECT_EQ(config.number_of_partitions, 2u);
+    EXPECT_EQ(config.partitioning_approach, 1);
     ASSERT_EQ(layouts.size(), 2u);
 
     std::vector<size_t> user_bins{};

@@ -50,6 +50,7 @@ std::string get_layout_with_correct_filenames(std::string_view const seq1_filena
               "@        \"disable_sketch_output\": true,\n"
               "@        \"precomputed_files\": false,\n"
               "@        \"number_of_partitions\": 0,\n"
+              "@        \"partitioning_approach\": 0,\n"
               "@        \"output_filename\": {\n"
               "@            \"value0\": \""
             + output_filename.data()

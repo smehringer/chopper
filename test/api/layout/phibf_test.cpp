@@ -149,6 +149,7 @@ TEST(phibf_execute_test, writes_one_layout_per_partition)
 
     EXPECT_EQ(read_filenames, filenames);
     EXPECT_EQ(read_config.number_of_partitions, number_of_partitions);
+    EXPECT_EQ(read_config.partitioning_approach, chopper::layout::phibf::partitioning_scheme::lsh_sim);
     ASSERT_EQ(layouts.size(), number_of_partitions);
 
     // Each layout holds the user bins of one partition, with global user bin indices.

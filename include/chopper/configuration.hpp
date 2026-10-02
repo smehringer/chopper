@@ -134,6 +134,7 @@ private:
         if (version >= 3)
         {
             archive(CEREAL_NVP(number_of_partitions));
+            archive(CEREAL_NVP(partitioning_approach));
         }
 
         archive(CEREAL_NVP(output_filename));
