@@ -554,6 +554,35 @@ bool find_best_partition(chopper::configuration const & config,
     return true;
 }
 
+/*!\brief Assigns a single user bin with find_best_partition.
+ * \throws std::runtime_error If the user bin does not fit into any partition.
+ */
+void assign_user_bin(chopper::configuration const & config,
+                     size_t const cardinality_per_part,
+                     size_t const user_bin_idx,
+                     std::vector<size_t> const & cardinalities,
+                     std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
+                     std::vector<std::vector<size_t>> & partitions,
+                     std::vector<seqan::hibf::sketch::hyperloglog> & partition_sketches,
+                     std::vector<size_t> & partition_cardinality)
+{
+    if (!find_best_partition(config,
+                             cardinality_per_part,
+                             {user_bin_idx},
+                             cardinalities,
+                             sketches,
+                             partitions,
+                             partition_sketches,
+                             partition_cardinality))
+    {
+        throw std::runtime_error{"User bin " + std::to_string(user_bin_idx) + " (cardinality "
+                                 + std::to_string(cardinalities[user_bin_idx])
+                                 + ") does not fit into any partition (target cardinality per partition: "
+                                 + std::to_string(cardinality_per_part)
+                                 + "). Use fewer partitions or another partitioning approach."};
+    }
+}
+
 void partition_user_bins(chopper::configuration const & config,
                          std::vector<size_t> const & cardinalities,
                          std::vector<seqan::hibf::sketch::hyperloglog> const & sketches,
@@ -811,14 +840,14 @@ void partition_user_bins(chopper::configuration const & config,
                 continue;
             }
 
-            find_best_partition(config,
-                                cardinality_per_part,
-                                {sorted_positions[i]},
-                                cardinalities,
-                                sketches,
-                                partitions,
-                                partition_sketches,
-                                partition_cardinality);
+            assign_user_bin(config,
+                            cardinality_per_part,
+                            sorted_positions[i],
+                            cardinalities,
+                            sketches,
+                            partitions,
+                            partition_sketches,
+                            partition_cardinality);
         }
     }
     else if (config.partitioning_approach == partitioning_scheme::lsh)
@@ -892,8 +921,7 @@ void partition_user_bins(chopper::configuration const & config,
             {
                 for (size_t const user_bin_idx : cluster.contained_user_bins())
                 {
-                    [[maybe_unused]] bool const found = find_best_partition(config, cardinality_per_part, {user_bin_idx}, cardinalities, sketches, partitions, partition_sketches, partition_cardinality);
-                    assert(found); // there should always be at least one partition that has enough space left
+                    assign_user_bin(config, cardinality_per_part, user_bin_idx, cardinalities, sketches, partitions, partition_sketches, partition_cardinality);
                 }
             }
         }
@@ -979,8 +1007,7 @@ void partition_user_bins(chopper::configuration const & config,
             {
                 for (size_t const user_bin_idx : cluster)
                 {
-                    [[maybe_unused]] bool const found = find_best_partition(config, cardinality_per_part, {user_bin_idx}, cardinalities, sketches, partitions, partition_sketches, partition_cardinality);
-                    assert(found); // there should always be at least one partition that has enough space left
+                    assign_user_bin(config, cardinality_per_part, user_bin_idx, cardinalities, sketches, partitions, partition_sketches, partition_cardinality);
                 }
             }
         }

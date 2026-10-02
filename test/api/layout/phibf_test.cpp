@@ -315,3 +315,27 @@ TEST(phibf_regression_test, fewer_clusters_than_partitions)
         }
     }
 }
+
+// find_best_partition only assigns a user bin to a partition below the target cardinality per partition that has room
+// for it (up to 1.2 times the target). lsh and lsh_sim asserted that a single user bin always fits and otherwise left
+// it unassigned in Release, which failed the final sanity check with a generic error. similarity ignored the result.
+TEST(phibf_regression_test, user_bin_does_not_fit)
+{
+    using chopper::layout::phibf::partitioning_scheme;
+
+    for (auto const & [approach, n, np, dist] : {std::tuple<int, size_t, size_t, std::string>{partitioning_scheme::lsh, 8, 5, "equal"},
+                                                 {partitioning_scheme::lsh_sim, 257, 8, "skewed"}})
+    {
+        stress_data const data{approach, n, np, dist};
+        try
+        {
+            data.partition();
+            ADD_FAILURE() << "Expected std::runtime_error for approach " << approach;
+        }
+        catch (std::runtime_error const & error)
+        {
+            EXPECT_NE(std::string{error.what()}.find("does not fit into any partition"), std::string::npos)
+                << error.what();
+        }
+    }
+}
