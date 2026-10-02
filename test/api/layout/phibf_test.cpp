@@ -298,3 +298,20 @@ TEST(phibf_regression_test, similarity_fewer_blocks_than_partitions)
         expect_each_user_bin_assigned_once(data.partition(), n);
     }
 }
+
+// lsh and lsh_sim initialise each partition with one cluster. If there are fewer clusters than partitions, lsh_sim read
+// the first cluster of an empty MultiCluster (assertion in Debug, out of bounds in Release). Now, the remaining
+// partitions stay empty and partition_user_bins reports that.
+TEST(phibf_regression_test, fewer_clusters_than_partitions)
+{
+    using chopper::layout::phibf::partitioning_scheme;
+
+    for (int const approach : {partitioning_scheme::lsh, partitioning_scheme::lsh_sim})
+    {
+        for (size_t const n : {9u, 10u})
+        {
+            stress_data const data{approach, n, 8, "equal"};
+            EXPECT_THROW(data.partition(), std::runtime_error) << "approach " << approach << " n " << n;
+        }
+    }
+}

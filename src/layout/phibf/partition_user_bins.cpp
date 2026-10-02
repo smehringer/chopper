@@ -838,7 +838,11 @@ void partition_user_bins(chopper::configuration const & config,
         size_t cidx{0}; // current cluster index
         for (size_t p = 0; p < config.number_of_partitions; ++p)
         {
-            assert(!clusters[cidx].empty());
+            // There may be fewer (non-empty) clusters than partitions. The remaining partitions stay empty, which is
+            // reported at the end.
+            if (clusters[cidx].empty())
+                break;
+
             bool p_has_been_incremented{false};
 
             for (size_t uidx = 0; uidx < clusters[cidx].size(); ++uidx)
@@ -911,7 +915,11 @@ void partition_user_bins(chopper::configuration const & config,
         size_t cidx{0}; // current cluster index
         for (size_t p = 0; p < config.number_of_partitions; ++p)
         {
-            assert(!clusters[cidx].empty());
+            // There may be fewer (non-empty) clusters than partitions. The remaining partitions stay empty, which is
+            // reported at the end.
+            if (clusters[cidx].empty())
+                break;
+
             bool p_has_been_incremented{false};
             auto const & cluster = clusters[cidx].contained_user_bins()[0];
 
