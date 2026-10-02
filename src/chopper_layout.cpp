@@ -83,6 +83,7 @@ int chopper_layout(chopper::configuration & config, sharg::parser & parser)
         throw sharg::parser_error{"You cannot combine --fast-layout with --determine-best-tmax."};
 
     bool const partitioned = config.number_of_partitions >= 2u;
+    config.tmax_is_set = parser.is_option_set("tmax");
 
     if (partitioned && config.fast_layout)
         throw sharg::parser_error{"You cannot combine --fast-layout with --number-of-partitions."};

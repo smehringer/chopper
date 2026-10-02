@@ -44,10 +44,13 @@ int execute(chopper::configuration & config,
 #pragma omp parallel for schedule(dynamic) num_threads(config.hibf_config.threads)
     for (size_t i = 0; i < config.number_of_partitions; ++i)
     {
-        // reset tmax to fit number of user bins in layout
+        // Unless the user set tmax, reset tmax to fit number of user bins in layout
         auto local_hibf_config = config.hibf_config; // every thread needs to set individual tmax
-        local_hibf_config.tmax =
-            chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(positions[i].size()))));
+        if (!config.tmax_is_set)
+        {
+            local_hibf_config.tmax =
+                chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(positions[i].size()))));
+        }
 
         // The partitions are laid out concurrently. concurrent_timer::start() and stop() are not thread-safe, only
         // operator+=() is. Hence, time locally and add the result to the configuration's timers.

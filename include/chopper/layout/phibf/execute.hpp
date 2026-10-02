@@ -37,8 +37,8 @@ namespace chopper::layout::phibf
  *
  * 1. The user bins are distributed onto `config.number_of_partitions` partitions (phibf::partition_user_bins).
  * 2. Each partition is laid out (in parallel) with the DP layout of the HIBF library
- *    (seqan::hibf::layout::compute_layout), with `tmax` set to `next_multiple_of_64(ceil(sqrt(#user bins)))` of the
- *    partition.
+ *    (seqan::hibf::layout::compute_layout). If `config.tmax_is_set`, every partition uses `config.hibf_config.tmax`.
+ *    Otherwise, `tmax` is set to `next_multiple_of_64(ceil(sqrt(#user bins)))` of the partition.
  * 3. The layout file contains the user bins and the configuration once, followed by one layout per partition.
  *    The user bin indices in each layout are global. Read it with chopper::layout::read_layouts_file.
  */

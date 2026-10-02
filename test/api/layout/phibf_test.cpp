@@ -382,3 +382,60 @@ TEST(phibf_regression_test, weighted_fold)
     EXPECT_EQ(partition_cardinalities(partitions[1]), (std::vector<size_t>{90, 10, 10, 10}));
     expect_each_user_bin_assigned_once(partitions, 8);
 }
+
+namespace
+{
+
+// The number of technical bins of the top-level IBF of a layout.
+size_t top_level_technical_bins(seqan::hibf::layout::layout const & layout)
+{
+    size_t result{};
+    for (auto const & user_bin : layout.user_bins)
+    {
+        if (user_bin.previous_TB_indices.empty()) // single or split bin on the top level
+            result = std::max(result, user_bin.storage_TB_id + user_bin.number_of_technical_bins);
+        else // merged bin on the top level
+            result = std::max(result, user_bin.previous_TB_indices[0] + 1);
+    }
+    return result;
+}
+
+std::vector<seqan::hibf::layout::layout> execute_phibf(phibf_data & data, std::filesystem::path const & layout_file)
+{
+    data.config.output_filename = layout_file;
+    std::vector<std::vector<std::string>> filenames(phibf_data::number_of_user_bins, {"ub.fa"});
+    chopper::layout::execute(data.config, filenames, data.sketches, data.minHash_sketches);
+
+    std::ifstream layout_stream{layout_file};
+    return std::get<2>(chopper::layout::read_layouts_file(layout_stream));
+}
+
+} // namespace
+
+// The partitioned HIBF ignored a tmax given by the user and always chose tmax based on each partition's size.
+TEST(phibf_execute_test, tmax)
+{
+    seqan3::test::tmp_directory tmp_dir{};
+    size_t const number_of_partitions{3};
+
+    // tmax not set: about 80 user bins per partition, next_multiple_of_64(ceil(sqrt(80))) = 64.
+    {
+        phibf_data data{number_of_partitions, chopper::layout::phibf::partitioning_scheme::sorted};
+        data.config.hibf_config.tmax = 128;
+        auto const layouts = execute_phibf(data, tmp_dir.path() / "heuristic.layout");
+        ASSERT_EQ(layouts.size(), number_of_partitions);
+        for (auto const & layout : layouts)
+            EXPECT_EQ(top_level_technical_bins(layout), 64u);
+    }
+
+    // tmax set: every partition uses it.
+    {
+        phibf_data data{number_of_partitions, chopper::layout::phibf::partitioning_scheme::sorted};
+        data.config.hibf_config.tmax = 128;
+        data.config.tmax_is_set = true;
+        auto const layouts = execute_phibf(data, tmp_dir.path() / "tmax.layout");
+        ASSERT_EQ(layouts.size(), number_of_partitions);
+        for (auto const & layout : layouts)
+            EXPECT_EQ(top_level_technical_bins(layout), 128u);
+    }
+}

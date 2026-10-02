@@ -58,6 +58,13 @@ struct configuration
 
     //!\brief The partitioning approach. See chopper::layout::phibf::partitioning_scheme.
     int partitioning_approach{};
+
+    /*!\brief Whether `hibf_config.tmax` was given by the user. Not serialised.
+     *
+     * If set, every partition of a partitioned HIBF is laid out with `hibf_config.tmax`. Otherwise, the tmax of each
+     * partition is chosen based on its number of user bins.
+     */
+    bool tmax_is_set{false};
     //!\}
 
     /*!\name Configuration of size estimates

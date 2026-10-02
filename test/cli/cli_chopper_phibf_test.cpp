@@ -217,3 +217,50 @@ TEST_F(cli_test, chopper_layout_phibf_more_partitions_than_user_bins)
     EXPECT_EQ(result.err,
               std::string{"[ERROR] The number of partitions (5) must not exceed the number of user bins (4).\n"});
 }
+
+TEST_F(cli_test, chopper_layout_phibf_tmax)
+{
+    seqan3::test::tmp_directory tmp_dir{};
+    std::filesystem::path const input_filename{write_input_file(tmp_dir.path())};
+
+    // The number of technical bins of the top-level IBF of each layout.
+    auto top_level_technical_bins = [](std::filesystem::path const & layout_filename)
+    {
+        std::ifstream layout_stream{layout_filename};
+        auto [filenames, config, layouts] = chopper::layout::read_layouts_file(layout_stream);
+        std::vector<size_t> result;
+        for (auto const & layout : layouts)
+        {
+            size_t tbs{};
+            for (auto const & user_bin : layout.user_bins)
+                tbs = std::max(tbs,
+                               user_bin.previous_TB_indices.empty()
+                                   ? user_bin.storage_TB_id + user_bin.number_of_technical_bins
+                                   : user_bin.previous_TB_indices[0] + 1);
+            result.push_back(tbs);
+        }
+        return result;
+    };
+
+    for (bool const set_tmax : {false, true})
+    {
+        std::filesystem::path const layout_filename{tmp_dir.path() / (set_tmax ? "tmax.layout" : "default.layout")};
+        std::string const tmax_option{set_tmax ? "--tmax 128" : ""};
+
+        cli_test_result result = execute_app("chopper",
+                                             "--input",
+                                             input_filename.c_str(),
+                                             "--number-of-partitions",
+                                             "2",
+                                             "--partitioning-approach",
+                                             "1",
+                                             tmax_option,
+                                             "--output",
+                                             layout_filename.c_str());
+        ASSERT_EQ(result.exit_code, 0) << result.err;
+
+        // Without --tmax, each partition (2 user bins) gets next_multiple_of_64(ceil(sqrt(2))) = 64.
+        size_t const expected = set_tmax ? 128u : 64u;
+        EXPECT_EQ(top_level_technical_bins(layout_filename), (std::vector<size_t>{expected, expected}));
+    }
+}
