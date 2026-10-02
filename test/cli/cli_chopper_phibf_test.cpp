@@ -173,3 +173,26 @@ TEST_F(cli_test, chopper_layout_phibf_from_sketch_file_without_minhashes)
         EXPECT_EQ(layouts.size(), 2u);
     }
 }
+
+TEST_F(cli_test, chopper_layout_phibf_unknown_partitioning_approach)
+{
+    seqan3::test::tmp_directory tmp_dir{};
+    std::filesystem::path const input_filename{write_input_file(tmp_dir.path())};
+    std::filesystem::path const layout_filename{tmp_dir.path() / "phibf.layout"};
+
+    cli_test_result result = execute_app("chopper",
+                                         "--input",
+                                         input_filename.c_str(),
+                                         "--number-of-partitions",
+                                         "2",
+                                         "--partitioning-approach",
+                                         "7",
+                                         "--output",
+                                         layout_filename.c_str());
+
+    EXPECT_NE(result.exit_code, 0);
+    EXPECT_EQ(result.out, std::string{});
+    EXPECT_EQ(result.err,
+              std::string{"[ERROR] Validation failed for option --partitioning-approach: Value 7 is not in range "
+                          "[0,6].\n"});
+}

@@ -12,6 +12,7 @@
 #include <cstdint>   // for uint64_t
 #include <fstream>   // for ifstream
 #include <numeric>   // for iota
+#include <stdexcept> // for invalid_argument
 #include <string>    // for string
 #include <vector>    // for vector
 
@@ -160,4 +161,22 @@ TEST(phibf_execute_test, writes_one_layout_per_partition)
             partitions.back().push_back(user_bin.idx);
     }
     expect_each_user_bin_assigned_once(partitions, phibf_data::number_of_user_bins);
+}
+
+TEST(phibf_partition_test, unknown_partitioning_approach)
+{
+    size_t const number_of_partitions{4};
+
+    for (int const approach : {-1, 7})
+    {
+        phibf_data data{number_of_partitions, approach};
+
+        std::vector<std::vector<size_t>> partitions(number_of_partitions);
+        EXPECT_THROW(chopper::layout::phibf::partition_user_bins(data.config,
+                                                                 data.cardinalities,
+                                                                 data.sketches,
+                                                                 data.minHash_sketches,
+                                                                 partitions),
+                     std::invalid_argument);
+    }
 }

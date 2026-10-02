@@ -100,8 +100,12 @@ void set_up_parser(sharg::parser & parser, configuration & config)
     parser.add_option(config.partitioning_approach,
                       sharg::config{.short_id = '\0',
                                     .long_id = "partitioning-approach",
-                                    .description = "this is only configurable for debugging.",
-                                    .advanced = true});
+                                    .description = "How the user bins are distributed onto the partitions of a "
+                                                   "partitioned HIBF: 0 = blocked, 1 = sorted, 2 = folded, "
+                                                   "3 = weighted fold, 4 = similarity, 5 = lsh, 6 = lsh + similarity. "
+                                                   "This is only configurable for debugging.",
+                                    .advanced = true,
+                                    .validator = sharg::arithmetic_range_validator{0, 6}});
 
     parser.add_option(
         config.hibf_config.tmax,

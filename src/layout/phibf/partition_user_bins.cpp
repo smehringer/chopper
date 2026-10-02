@@ -557,6 +557,13 @@ void partition_user_bins(chopper::configuration const & config,
                          std::vector<seqan::hibf::sketch::minhashes> const & minHash_sketches,
                          std::vector<std::vector<size_t>> & partitions)
 {
+    if (config.partitioning_approach < partitioning_scheme::blocked
+        || config.partitioning_approach > partitioning_scheme::lsh_sim)
+    {
+        throw std::invalid_argument{"Unknown partitioning approach " + std::to_string(config.partitioning_approach)
+                                    + "."};
+    }
+
     // all approaches need sorted positions
     std::vector<size_t> const sorted_positions = [&cardinalities]()
     {
