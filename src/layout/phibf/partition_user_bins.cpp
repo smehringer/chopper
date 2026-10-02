@@ -757,9 +757,18 @@ void partition_user_bins(chopper::configuration const & config,
         size_t const cardinality_per_part =
             seqan::hibf::divide_and_ceil(sum_of_cardinalities, config.number_of_partitions);
         size_t const u_bins_per_part = seqan::hibf::divide_and_ceil(cardinalities.size(), config.number_of_partitions);
-        size_t const block_size =
-            std::min(u_bins_per_part,
-                     chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
+        size_t const block_size = [&]()
+        {
+            size_t const size =
+                std::min(u_bins_per_part,
+                         chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(u_bins_per_part)))));
+            // Each partition is initialised with one block, so there must be at least number_of_partitions blocks.
+            // E.g., 33 user bins and 8 partitions: a block size of 5 results in 7 blocks. Since there are at least
+            // as many user bins as partitions, a block size of floor(#user bins / #partitions) >= 1 suffices.
+            if (seqan::hibf::divide_and_ceil(cardinalities.size(), size) < config.number_of_partitions)
+                return cardinalities.size() / config.number_of_partitions;
+            return size;
+        }();
         size_t const number_of_blocks = seqan::hibf::divide_and_ceil(cardinalities.size(), block_size);
 
         // don't move from largest to smallest but pick the next block to process randomly.

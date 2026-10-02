@@ -287,3 +287,14 @@ TEST(phibf_regression_test, zero_cardinality_user_bins)
         EXPECT_EQ(partitions[approach == partitioning_scheme::sorted ? 1 : 0].back(), 4u) << "approach " << approach;
     }
 }
+
+// similarity initialises each partition with one block of user bins, but the block size could result in fewer
+// blocks than partitions, e.g. 33 user bins and 8 partitions: block size 5, 7 blocks.
+TEST(phibf_regression_test, similarity_fewer_blocks_than_partitions)
+{
+    for (auto const & [n, np] : {std::pair<size_t, size_t>{33, 8}, {33, 16}, {100, 16}})
+    {
+        stress_data const data{chopper::layout::phibf::partitioning_scheme::similarity, n, np, "uniform"};
+        expect_each_user_bin_assigned_once(data.partition(), n);
+    }
+}
