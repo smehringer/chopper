@@ -22,6 +22,7 @@
 
 #include <hibf/layout/compute_layout.hpp>
 #include <hibf/layout/layout.hpp>
+#include <hibf/misc/timer.hpp>
 
 namespace chopper::layout::phibf
 {
@@ -48,14 +49,24 @@ int execute(chopper::configuration & config,
         local_hibf_config.tmax =
             chopper::next_multiple_of_64(static_cast<uint16_t>(std::ceil(std::sqrt(positions[i].size()))));
 
-        config.dp_algorithm_timer.start();
+        // The partitions are laid out concurrently. concurrent_timer::start() and stop() are not thread-safe, only
+        // operator+=() is. Hence, time locally and add the result to the configuration's timers.
+        seqan::hibf::serial_timer dp_algorithm_timer{};
+        seqan::hibf::concurrent_timer union_estimation_timer{};
+        seqan::hibf::concurrent_timer rearrangement_timer{};
+
+        dp_algorithm_timer.start();
         hibf_layouts[i] = seqan::hibf::layout::compute_layout(local_hibf_config,
                                                               cardinalities,
                                                               sketches,
                                                               std::move(positions[i]),
-                                                              config.union_estimation_timer,
-                                                              config.rearrangement_timer);
-        config.dp_algorithm_timer.stop();
+                                                              union_estimation_timer,
+                                                              rearrangement_timer);
+        dp_algorithm_timer.stop();
+
+        config.dp_algorithm_timer += dp_algorithm_timer;
+        config.union_estimation_timer += union_estimation_timer;
+        config.rearrangement_timer += rearrangement_timer;
     }
 
     // brief Write the output to the layout file.
