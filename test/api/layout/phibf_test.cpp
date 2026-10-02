@@ -269,3 +269,21 @@ TEST(phibf_regression_test, empty_partition)
         EXPECT_THROW(data.partition(), std::runtime_error) << "approach " << approach;
     }
 }
+
+// sorted and folded moved on to the next partition whenever a partition reached its target cardinality. With
+// zero-cardinality user bins at the end, the next one was written past the last partition.
+TEST(phibf_regression_test, zero_cardinality_user_bins)
+{
+    using chopper::layout::phibf::partitioning_scheme;
+
+    for (int const approach : {partitioning_scheme::sorted, partitioning_scheme::folded})
+    {
+        stress_data data{approach, 5, 2, "equal"};
+        data.cardinalities = {10, 10, 10, 10, 0};
+
+        auto const partitions = data.partition();
+        expect_each_user_bin_assigned_once(partitions, 5);
+        // The zero-cardinality user bin goes to the last partition (sorted) or the last folded part (folded).
+        EXPECT_EQ(partitions[approach == partitioning_scheme::sorted ? 1 : 0].back(), 4u) << "approach " << approach;
+    }
+}

@@ -632,7 +632,9 @@ void partition_user_bins(chopper::configuration const & config,
             if (current_cardinality >= cardinality_per_part)
             {
                 current_cardinality = 0;
-                ++current_part;
+                // Remaining user bins (with cardinality 0) stay in the last partition.
+                if (current_part + 1 < config.number_of_partitions)
+                    ++current_part;
             }
         }
     }
@@ -660,7 +662,9 @@ void partition_user_bins(chopper::configuration const & config,
             if (current_cardinality >= cardinality_per_part_halved)
             {
                 current_cardinality = 0;
-                ++current_part;
+                // Remaining user bins (with cardinality 0) stay in the last part.
+                if (current_part + 1 < parts.size())
+                    ++current_part;
             }
         }
     }
