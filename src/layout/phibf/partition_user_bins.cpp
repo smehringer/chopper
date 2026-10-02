@@ -15,8 +15,6 @@
 #include <cinttypes>
 #include <cmath>
 #include <cstddef>
-#include <functional>
-#include <limits>
 #include <numeric>
 #include <random>
 #include <stdexcept>
@@ -45,8 +43,7 @@ namespace chopper::layout::phibf
 // Vector L3 : minHash_sketche_size (LSH ADD+OR parameter r)
 std::vector<Cluster> initital_LSH_partitioning(std::vector<seqan::hibf::sketch::minhashes> const & minHash_sketches,
                          std::vector<size_t> const & cardinalities,
-                         size_t const average_technical_bin_size,
-                         [[maybe_unused]] chopper::configuration const & config)
+                         size_t const average_technical_bin_size)
 {
     assert(!minHash_sketches.empty());
     assert(!minHash_sketches[0].table.empty());
@@ -75,7 +72,6 @@ std::vector<Cluster> initital_LSH_partitioning(std::vector<seqan::hibf::sketch::
     size_t current_max_cluster_size{0};
     size_t current_number_of_sketch_hashes{minHash_sketche_size}; // start with high r but decrease it iteratively
     size_t current_sketch_index{0};
-    [[maybe_unused]] size_t current_number_of_clusters{number_of_user_bins}; // initially, each UB is a separate cluster
 
     for (size_t user_bin_idx = 0; user_bin_idx < number_of_user_bins; ++user_bin_idx)
     {
@@ -85,8 +81,8 @@ std::vector<Cluster> initital_LSH_partitioning(std::vector<seqan::hibf::sketch::
     }
 
     // refine clusters
-    while (current_max_cluster_size < average_technical_bin_size && /*number_of_clusters / static_cast<double>(number_of_user_bins) > 0.5 &&*/
-           current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
+    while (current_max_cluster_size < average_technical_bin_size
+           && current_sketch_index < number_of_max_minHash_sketches)
     {
 
         // fill LSH collision hashtable
@@ -100,13 +96,11 @@ std::vector<Cluster> initital_LSH_partitioning(std::vector<seqan::hibf::sketch::
         {
             assert(!list.empty());
 
-            // uniquify list. Since I am inserting representative_idx's into the table, the same number can
-            // be inserted into multiple splots, and multiple times in the same slot.
-            std::sort(list.begin(), list.end());
-            auto const end = std::unique(list.begin(), list.end());
+            // LSH_fill_hashtable returns sorted lists without duplicates.
             auto const begin = list.begin();
+            auto const end = list.end();
 
-            if (end - begin <= 1) // nothing to do here
+            if (list.size() <= 1) // nothing to do here
                 continue;
 
             // Now combine all clusters into the first.
@@ -140,8 +134,6 @@ std::vector<Cluster> initital_LSH_partitioning(std::vector<seqan::hibf::sketch::
                 assert(representative_cluster.is_valid(representative_cluster_id)); // and it should still be valid
 
                 current_cluster_cardinality[representative_cluster.id()] += current_cluster_cardinality[next_cluster.id()];
-
-                --current_number_of_clusters;
             }
 
             current_max_cluster_size = *std::ranges::max_element(current_cluster_cardinality);
@@ -156,8 +148,7 @@ std::vector<Cluster> initital_LSH_partitioning(std::vector<seqan::hibf::sketch::
 
 std::vector<Cluster> very_similar_LSH_partitioning(std::vector<seqan::hibf::sketch::minhashes> const & minHash_sketches,
                          std::vector<size_t> const & cardinalities,
-                         size_t const average_technical_bin_size,
-                         [[maybe_unused]] chopper::configuration const & config)
+                         size_t const average_technical_bin_size)
 {
     assert(!minHash_sketches.empty());
     assert(!minHash_sketches[0].table.empty());
@@ -186,7 +177,6 @@ std::vector<Cluster> very_similar_LSH_partitioning(std::vector<seqan::hibf::sket
     size_t current_max_cluster_size{0};
     size_t current_number_of_sketch_hashes{minHash_sketche_size}; // start with high r but decrease it iteratively
     size_t current_sketch_index{0};
-    [[maybe_unused]] size_t current_number_of_clusters{number_of_user_bins}; // initially, each UB is a separate cluster
 
     for (size_t user_bin_idx = 0; user_bin_idx < number_of_user_bins; ++user_bin_idx)
     {
@@ -196,8 +186,8 @@ std::vector<Cluster> very_similar_LSH_partitioning(std::vector<seqan::hibf::sket
     }
 
     // refine clusters
-    while (current_max_cluster_size < average_technical_bin_size && /*number_of_clusters / static_cast<double>(number_of_user_bins) > 0.5 &&*/
-           current_sketch_index < number_of_max_minHash_sketches) // I want to cluster 10%?
+    while (current_max_cluster_size < average_technical_bin_size
+           && current_sketch_index < number_of_max_minHash_sketches)
     {
 
         // fill LSH collision hashtable
@@ -211,13 +201,11 @@ std::vector<Cluster> very_similar_LSH_partitioning(std::vector<seqan::hibf::sket
         {
             assert(!list.empty());
 
-            // uniquify list. Since I am inserting representative_idx's into the table, the same number can
-            // be inserted into multiple splots, and multiple times in the same slot.
-            std::sort(list.begin(), list.end());
-            auto const end = std::unique(list.begin(), list.end());
+            // LSH_fill_hashtable returns sorted lists without duplicates.
             auto const begin = list.begin();
+            auto const end = list.end();
 
-            if (end - begin <= 1) // nothing to do here
+            if (list.size() <= 1) // nothing to do here
                 continue;
 
             // Now combine all clusters into the first.
@@ -251,8 +239,6 @@ std::vector<Cluster> very_similar_LSH_partitioning(std::vector<seqan::hibf::sket
                 assert(representative_cluster.is_valid(representative_cluster_id)); // and it should still be valid
 
                 current_cluster_cardinality[representative_cluster.id()] += current_cluster_cardinality[next_cluster.id()];
-
-                --current_number_of_clusters;
             }
 
             current_max_cluster_size = *std::ranges::max_element(current_cluster_cardinality);
@@ -276,7 +262,6 @@ std::vector<MultiCluster> most_distant_LSH_partitioning(std::vector<Cluster> con
     size_t const number_of_user_bins{initial_clusters.size()};
     assert(number_of_user_bins == minHash_sketches.size());
     size_t const number_of_max_minHash_sketches{minHash_sketches[0].table.size()}; // LSH ADD+OR parameter b
-    // size_t const minHash_sketche_size{minHash_sketches[0][0].size()};   // LSH ADD+OR parameter r
 
     size_t current_number_of_sketch_hashes{5};
     size_t current_sketch_index{0};
@@ -317,13 +302,11 @@ std::vector<MultiCluster> most_distant_LSH_partitioning(std::vector<Cluster> con
         {
             assert(!list.empty());
 
-            // uniquify list. Since I am inserting representative_idx's into the table, the same number can
-            // be inserted into multiple splots, and multiple times in the same slot.
-            std::sort(list.begin(), list.end());
-            auto const end = std::unique(list.begin(), list.end());
+            // LSH_fill_hashtable returns sorted lists without duplicates.
             auto const begin = list.begin();
+            auto const end = list.end();
 
-            if (end - begin <= 1) // nothing to do here
+            if (list.size() <= 1) // nothing to do here
                 continue;
 
             // Now combine all clusters into the first.
@@ -476,7 +459,7 @@ std::vector<Cluster> LSH_partitioning(std::vector<seqan::hibf::sketch::minhashes
                                       size_t const average_technical_bin_size,
                                       chopper::configuration const & config)
 {
-    std::vector<Cluster> clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, average_technical_bin_size, config);
+    std::vector<Cluster> clusters = initital_LSH_partitioning(minHash_sketches, cardinalities, average_technical_bin_size);
     post_process_clusters(clusters, cardinalities, config);
     return clusters;
 }
@@ -487,7 +470,7 @@ std::vector<MultiCluster> sim_dist_LSH_partitioning(std::vector<seqan::hibf::ske
                                       size_t const average_technical_bin_size,
                                       chopper::configuration const & config)
 {
-    std::vector<Cluster> clusters = very_similar_LSH_partitioning(minHash_sketches, cardinalities, average_technical_bin_size, config);
+    std::vector<Cluster> clusters = very_similar_LSH_partitioning(minHash_sketches, cardinalities, average_technical_bin_size);
     std::vector<MultiCluster> multi_clusters = most_distant_LSH_partitioning(clusters, minHash_sketches, config);
     post_process_clusters(multi_clusters, cardinalities, config);
     return multi_clusters;
